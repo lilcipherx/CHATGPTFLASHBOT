@@ -94,6 +94,12 @@ async def set_model(session: AsyncSession, user: User, model_key: str) -> None:
     await session.commit()
 
 
+async def set_search_model(session: AsyncSession, user: User, model_key: str) -> None:
+    """Persist the user's chosen internet-search (/s) model."""
+    user.search_model = model_key
+    await session.commit()
+
+
 async def set_language(session: AsyncSession, user: User, lang: str) -> None:
     user.language_code = lang
     await session.commit()

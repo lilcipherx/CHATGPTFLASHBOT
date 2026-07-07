@@ -65,6 +65,20 @@ async def enabled_models(session: AsyncSession, modality: str = "text") -> list[
     )
 
 
+async def enabled_search_models(session: AsyncSession) -> list[AIModel]:
+    """Enabled models flagged for internet search (/s), in admin-defined order.
+    The admin ticks `search` on a model in the AI-routing catalog; only web-capable
+    upstream ids should be flagged (Perplexity Sonar, an OpenAI *-search-preview
+    model, an OpenRouter ":online" variant)."""
+    return list(
+        await session.scalars(
+            select(AIModel)
+            .where(AIModel.enabled.is_(True), AIModel.search.is_(True))
+            .order_by(AIModel.sort_order, AIModel.key)
+        )
+    )
+
+
 def _weighted_order(group: list[AIAccount]) -> list[AIAccount]:
     """Order accounts that share a (tier, priority) by a weighted random shuffle so
     traffic distributes ∝ weight, while every account stays reachable as a fallback

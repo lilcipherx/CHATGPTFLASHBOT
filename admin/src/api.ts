@@ -367,6 +367,7 @@ export interface AIModelRow {
   modality: string;
   account_kind: string | null;   // backend pin: omniroute|kie|muapi|apimart|direct… (null = any)
   premium: boolean;
+  search?: boolean;   // offer this model in the internet-search (/s) picker
   cost: number;
   cost_micros?: number;   // provider cost / себестоимость per request, micro-USD
   price_in_micros?: number;    // token pricing: micro-USD per 1M input tokens

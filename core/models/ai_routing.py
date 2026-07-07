@@ -89,6 +89,12 @@ class AIModel(Base):
     # whether it runs via a specific aggregator / direct provider.
     account_kind: Mapped[str | None] = mapped_column(String(20))
     premium: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Offer this model in the internet-search (/s) model picker. Admin-toggled; only
+    # models that actually browse the web should be flagged (Perplexity Sonar, an
+    # OpenAI *-search-preview model, or an OpenRouter ":online" variant). NULL/false =
+    # not shown for search. Real web access lives in the upstream model id, so no
+    # special adapter is needed — the router calls it like any other chat model.
+    search: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     cost: Mapped[int] = mapped_column(Integer, default=1)   # generations charged to the user
     # Provider cost / себестоимость per request, in micro-USD (1e-6 USD) — admin-set,
     # used only for spend accounting (ТЗ §2). 0 = untracked. Distinct from ``cost``,

@@ -12,7 +12,7 @@ const MODALITY_LABEL: Record<string, string> = { text: "Текст", image: "И�
 
 const EMPTY_ACC = { name: "", kind: "omniroute", base_url: "", api_key: "", modality: "text", tier: 0, priority: 100, weight: 1, spend_limit_usd: 0, enabled: true };
 type AccForm = typeof EMPTY_ACC;
-const EMPTY_MODEL: Omit<AIModelRow, "key"> & { key: string } = { key: "", title: "", upstream_model: "", modality: "text", account_kind: null, premium: false, cost: 1, cost_micros: 0, price_in_micros: 0, price_out_micros: 0, enabled: true, sort_order: 100 };
+const EMPTY_MODEL: Omit<AIModelRow, "key"> & { key: string } = { key: "", title: "", upstream_model: "", modality: "text", account_kind: null, premium: false, search: false, cost: 1, cost_micros: 0, price_in_micros: 0, price_out_micros: 0, enabled: true, sort_order: 100 };
 // micro-USD (1e-6 $) per 1M tokens <-> $ per 1M tokens, for the editor inputs.
 const perMtokUsd = (micros?: number) => ((micros ?? 0) / 1_000_000).toFixed(2);
 
@@ -601,6 +601,7 @@ function ModelEditor({ row, guard, toast, onClose }: { row: AIModelRow | null; g
       <div className="form-row" style={{ gap: "var(--sp-4)", marginTop: "var(--sp-3)" }}>
         <Switch checked={m.enabled} onChange={(v) => set("enabled", v)} label="Включена" />
         <Switch checked={m.premium} onChange={(v) => set("premium", v)} label="Premium" />
+        <Switch checked={!!m.search} onChange={(v) => set("search", v)} label="Поиск (/s)" />
       </div>
       <p className="cfg-hint" style={{ marginTop: "var(--sp-4)" }}>
         <span className="ms sm" style={{ verticalAlign: "-3px" }}>info</span>{" "}

@@ -170,6 +170,29 @@ def model_keyboard(
     return b.as_markup()
 
 
+def search_model_keyboard(
+    _: Translator, active_key: str | None, models: list[tuple[str, str]],
+    premium_keys: set[str] | None = None,
+) -> InlineKeyboardMarkup:
+    """Internet-search (/s) model picker. `models` = admin-flagged (key, title) search
+    models; the active one gets a ✅. Laid out 2-per-row; Close alone on the last row.
+    Mirrors model_keyboard so the UX is consistent between chat and search."""
+    premium_keys = premium_keys or set()
+    b = InlineKeyboardBuilder()
+    for key, name in models:
+        mark = "✅ " if key == active_key else ""
+        badge = " 💎" if key in premium_keys else ""
+        b.button(text=f"{mark}{name}{badge}", callback_data=f"searchmodel:{key}")
+    b.button(text=_("btn.close"), callback_data="close")
+    n = len(models)
+    rows = [2] * (n // 2)
+    if n % 2:
+        rows.append(1)
+    rows.append(1)  # Close on its own full-width row
+    b.adjust(*rows)
+    return b.as_markup()
+
+
 def settings_keyboard(_: Translator) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=_("btn.set_model"), callback_data="settings:model")

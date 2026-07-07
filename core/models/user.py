@@ -39,6 +39,10 @@ class User(Base, TimestampMixin):
 
     # per-user config (§9 settings)
     selected_model: Mapped[str] = mapped_column(String(50), default=DEFAULT_MODEL)
+    # Chosen internet-search (/s) model key. NULL = use the first admin-enabled search
+    # model (or fall back to Perplexity / the text model). Validated against the live
+    # search-model catalog on use, so a disabled/removed model reverts to the default.
+    search_model: Mapped[str | None] = mapped_column(String(50))
     custom_role: Mapped[str | None] = mapped_column(Text)
     role_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     context_enabled: Mapped[bool] = mapped_column(Boolean, default=True)

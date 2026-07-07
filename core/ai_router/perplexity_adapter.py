@@ -17,11 +17,13 @@ class PerplexityText(OpenAICompatibleText):
         )
 
 
-async def search(query: str) -> TextResult:
+async def search(query: str, model: str = "sonar") -> TextResult:
+    """Run a Perplexity web search. ``model`` is the Perplexity model id (e.g.
+    ``sonar`` or ``sonar-pro``); defaults to ``sonar`` for the legacy call site."""
     provider = PerplexityText()
     if not provider.is_available():
         raise ProviderUnavailable("perplexity")
-    return await provider.chat([Message("user", query)], model="sonar")
+    return await provider.chat([Message("user", query)], model=model or "sonar")
 
 
 def perplexity_text() -> PerplexityText:

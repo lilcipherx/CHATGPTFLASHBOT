@@ -383,7 +383,8 @@ async def list_models(
     return [
         {"key": m.key, "title": m.title, "upstream_model": m.upstream_model,
          "modality": m.modality, "account_kind": m.account_kind,
-         "premium": m.premium, "cost": m.cost, "cost_micros": m.cost_micros,
+         "premium": m.premium, "search": getattr(m, "search", False),
+         "cost": m.cost, "cost_micros": m.cost_micros,
          "price_in_micros": getattr(m, "price_in_micros", 0) or 0,
          "price_out_micros": getattr(m, "price_out_micros", 0) or 0,
          "enabled": m.enabled, "sort_order": m.sort_order}
@@ -398,6 +399,7 @@ class ModelUpsert(BaseModel):
     modality: str = Field("text", max_length=20)
     account_kind: str | None = Field(None, max_length=50)   # pin to a backend kind; None = any of modality
     premium: bool = False
+    search: bool = False   # offer this model in the internet-search (/s) picker
     cost: int = Field(1, ge=0, le=10_000_000)
     cost_micros: int = Field(0, ge=0, le=10**15)              # provider cost / себестоимость per request, micro-USD
     price_in_micros: int = Field(0, ge=0, le=10**15)          # token pricing: micro-USD per 1M input tokens
@@ -423,6 +425,7 @@ async def upsert_model(
     m.modality = req.modality
     m.account_kind = req.account_kind
     m.premium = req.premium
+    m.search = req.search
     m.cost = req.cost
     m.cost_micros = req.cost_micros
     m.price_in_micros = req.price_in_micros
@@ -582,6 +585,7 @@ async def export_config(
         "models": [
             {"key": m.key, "title": m.title, "upstream_model": m.upstream_model,
              "modality": m.modality, "account_kind": m.account_kind, "premium": m.premium,
+             "search": getattr(m, "search", False),
              "cost": m.cost, "cost_micros": m.cost_micros,
              "enabled": m.enabled, "sort_order": m.sort_order}
             for m in models
@@ -618,6 +622,7 @@ async def import_config(
         row.modality = m.get("modality", "text")
         row.account_kind = m.get("account_kind")
         row.premium = bool(m.get("premium", False))
+        row.search = bool(m.get("search", False))
         row.cost = int(m.get("cost", 1))
         row.cost_micros = int(m.get("cost_micros", 0))
         row.enabled = bool(m.get("enabled", True))
