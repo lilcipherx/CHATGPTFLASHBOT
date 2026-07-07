@@ -55,11 +55,20 @@ async def resolve_model(session: AsyncSession, key: str) -> AIModel | None:
 
 
 async def enabled_models(session: AsyncSession, modality: str = "text") -> list[AIModel]:
-    """Enabled models for the /model keyboard, in admin-defined order."""
+    """Enabled models for the /model chat keyboard, in admin-defined order.
+
+    Search-flagged models are EXCLUDED here — they belong only to the internet-search
+    (/s) picker (see ``enabled_search_models``), not the chat model list. A model with
+    ``search=True`` is a web-search variant (Perplexity Sonar / *-search-preview /
+    ":online") and shouldn't be pickable as a general chat model."""
     return list(
         await session.scalars(
             select(AIModel)
-            .where(AIModel.modality == modality, AIModel.enabled.is_(True))
+            .where(
+                AIModel.modality == modality,
+                AIModel.enabled.is_(True),
+                AIModel.search.is_(False),
+            )
             .order_by(AIModel.sort_order, AIModel.key)
         )
     )
