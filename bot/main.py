@@ -7,12 +7,10 @@ from contextlib import suppress  # FIX: B1 - needed for L2 finally block
 import structlog
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.redis import (
-    DefaultKeyBuilder,  # FIX: AUDIT12-17 - base for our custom key builder
-    KeyBuilder,  # FIX: AUDIT12-17 - protocol we implement
+    DefaultKeyBuilder,  # FIX: FSM-1 - with_bot_id=True gives multi-bot isolation + correct part suffix
     RedisStorage,
 )
-from aiogram.fsm.state import State
-from aiogram.types import BotCommand, ErrorEvent, TelegramObject
+from aiogram.types import BotCommand, ErrorEvent
 
 from bot.handlers import setup_routers
 from bot.middlewares import (
@@ -140,28 +138,6 @@ async def on_bot_error(event: ErrorEvent) -> bool:
     return True
 
 
-class MultiBotKeyBuilder(DefaultKeyBuilder):
-    """FIX: AUDIT12-17 - include bot_id in FSM Redis keys to prevent state bleed
-    across bot instances in multi-bot setups. Key format: ``fsm:{bot_id}:{chat_id}:{user_id}``.
-    """
-    def build(self, key: TelegramObject, state: State | None = None) -> str:  # type: ignore[override]
-        bot_id = 0
-        bot = getattr(key, "bot", None)
-        if bot is not None:
-            try:
-                token = getattr(bot, "token", "")
-                if token:
-                    parts = str(token).split(":")
-                    if parts and parts[0].isdigit():
-                        bot_id = int(parts[0])
-            except Exception:  # noqa: BLE001
-                bot_id = 0
-        chat_id = getattr(key, "chat_id", 0) or 0
-        user_id_obj = getattr(key, "from_user", None)
-        user_id = (getattr(user_id_obj, "id", 0) if user_id_obj else 0) or 0
-        return f"fsm:{bot_id}:{chat_id}:{user_id}"
-
-
 def build_dispatcher() -> Dispatcher:
     # Handler routers are module-level singletons, so the dispatcher is built once
     # per process and cached (repeat calls return the same instance).
@@ -169,10 +145,18 @@ def build_dispatcher() -> Dispatcher:
     if _dp is not None:
         return _dp
     # FIX: L1 - expire abandoned FSM states after 24h (was: never expire → unbounded Redis growth).
-    # FIX: AUDIT12-17 - use MultiBotKeyBuilder so multi-bot setups don't bleed FSM state.
+    # FIX: FSM-1 - use aiogram's built-in DefaultKeyBuilder(with_bot_id=True) for multi-bot
+    # FSM isolation. The previous custom MultiBotKeyBuilder was broken two ways: (1) it
+    # overrode build() with the wrong 2nd param name (`state` instead of aiogram's `part`)
+    # and IGNORED it, so the STATE key and the DATA key collided on one Redis key — aiogram
+    # then json.loads()'d the raw state string ("SomeSG:step") as data and raised
+    # JSONDecodeError, crashing every callback that touched FSM data (buttons hung on a
+    # spinner). (2) It read key.bot / key.from_user, which StorageKey doesn't have (it has
+    # bot_id / user_id), so bot_id and user_id were always 0. The built-in builder appends
+    # the `part` suffix (state/data/lock) AND includes bot_id, fixing both.
     dp = Dispatcher(storage=RedisStorage(
         redis=redis_client, state_ttl=86400, data_ttl=86400,
-        key_builder=MultiBotKeyBuilder(),
+        key_builder=DefaultKeyBuilder(with_bot_id=True),
     ))
     # Outer middleware order (each wraps the next):
     #  1. Throttling FIRST — a flooding user is dropped on a Redis-only check
