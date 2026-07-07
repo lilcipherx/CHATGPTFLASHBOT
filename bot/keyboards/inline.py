@@ -239,21 +239,28 @@ def premium_products(
     its section is ON (``packs_enabled``). None = show all (back-compat / tests)."""
     if packs_enabled is None:
         packs_enabled = {"image_pack", "video_pack", "music_pack"}
-    rows = [
-        [InlineKeyboardButton(text=_("premium.btn_premium"), callback_data="prem:premium")],
-        [InlineKeyboardButton(text=_("premium.btn_premium_x2"), callback_data="prem:premium_x2")],
-    ]
+    # FIX: UX - lay the product buttons 2-per-row (was a single column) so the menu is
+    # compact; Close always sits alone on the last row. Only the enabled packs appear.
+    b = InlineKeyboardBuilder()
+    b.button(text=_("premium.btn_premium"), callback_data="prem:premium")
+    b.button(text=_("premium.btn_premium_x2"), callback_data="prem:premium_x2")
+    n_products = 2
     if "image_pack" in packs_enabled:
-        rows.append([InlineKeyboardButton(
-            text=_("premium.btn_image"), callback_data="pack:image_pack")])
+        b.button(text=_("premium.btn_image"), callback_data="pack:image_pack")
+        n_products += 1
     if "video_pack" in packs_enabled:
-        rows.append([InlineKeyboardButton(
-            text=_("premium.btn_video"), callback_data="pack:video_pack")])
+        b.button(text=_("premium.btn_video"), callback_data="pack:video_pack")
+        n_products += 1
     if "music_pack" in packs_enabled:
-        rows.append([InlineKeyboardButton(
-            text=_("premium.btn_music"), callback_data="pack:music_pack")])
-    rows.append([InlineKeyboardButton(text=_("btn.close"), callback_data="close")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+        b.button(text=_("premium.btn_music"), callback_data="pack:music_pack")
+        n_products += 1
+    b.button(text=_("btn.close"), callback_data="close")
+    rows = [2] * (n_products // 2)
+    if n_products % 2:
+        rows.append(1)
+    rows.append(1)  # Close on its own full-width row
+    b.adjust(*rows)
+    return b.as_markup()
 
 
 def ad_keyboard(_: Translator) -> InlineKeyboardMarkup:

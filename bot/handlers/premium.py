@@ -57,6 +57,28 @@ async def _enabled_packs(session: AsyncSession) -> set[str]:
     return {p for p in _PACKS if (await pricing.pack_section_state(session, p))["enabled"]}
 
 
+async def _premium_text_prices(session: AsyncSession) -> dict[str, int]:
+    """Live prices shown INSIDE the /premium overview text, so an admin price change
+    in the panel is reflected in the description — not just on the buttons. Base
+    (pre-sale) prices: the active sale is already announced by the banner above the
+    text, so the overview lists the regular price to avoid a confusing double discount."""
+    def _from(m: dict[int, int]) -> int:
+        vals = [v for v in m.values() if v > 0]
+        return min(vals) if vals else 0
+    return {
+        "p_premium": await pricing.subscription_price(
+            session, "premium", 1, apply_sale=False) or 0,
+        "p_premium_x2": await pricing.subscription_price(
+            session, "premium_x2", 1, apply_sale=False) or 0,
+        "p_image_from": _from(await pricing.pack_prices_for(
+            session, "image_pack", apply_sale=False)),
+        "p_video_from": _from(await pricing.pack_prices_for(
+            session, "video_pack", apply_sale=False)),
+        "p_music_from": _from(await pricing.pack_prices_for(
+            session, "music_pack", apply_sale=False)),
+    }
+
+
 async def _checkout_banner(
     session: AsyncSession, user: User, sale: dict, _: Translator
 ) -> tuple[str, int]:
@@ -77,7 +99,8 @@ async def cmd_premium(
 ) -> None:
     banner, _pct = await _checkout_banner(session, user, await pricing.sale_state(session), _)
     await message.answer(
-        banner + _("premium", support=settings.support_contact),
+        banner + _("premium", support=settings.support_contact,
+                    **await _premium_text_prices(session)),
         reply_markup=premium_products(_, await _enabled_packs(session)),
         disable_web_page_preview=True,
     )
@@ -89,7 +112,8 @@ async def cb_premium_open(
 ) -> None:
     banner, _pct = await _checkout_banner(session, user, await pricing.sale_state(session), _)
     await callback.message.edit_text(
-        banner + _("premium", support=settings.support_contact),
+        banner + _("premium", support=settings.support_contact,
+                    **await _premium_text_prices(session)),
         reply_markup=premium_products(_, await _enabled_packs(session)),
     )
     await callback.answer()

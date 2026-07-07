@@ -42,7 +42,9 @@ def test_no_placeholder_mismatch_across_locales():
     for loc in SUPPORTED_LOCALES:
         assert "{" not in t("account", loc, **account_kw)  # no leftover placeholder
         assert t("start.welcome", loc, support="@lilcipher")
-        assert t("premium", loc, support="@lilcipher")
+        assert t("premium", loc, support="@lilcipher", p_premium=600,
+                 p_premium_x2=900, p_image_from=250, p_video_from=150,
+                 p_music_from=250)
         assert t("help", loc, support="@lilcipher")
         assert t("quota.exceeded.free", loc, used=1, limit=100)
         assert t("model.selected", loc, name="GPT")
