@@ -25,12 +25,36 @@ def _allowlist() -> set[str]:
     return {ip.strip() for ip in settings.admin_ip_allowlist.split(",") if ip.strip()}
 
 
+def _ip_matches(client: str, allow: set[str]) -> bool:
+    """True if ``client`` is permitted by the allowlist. FIX: AUDIT13-DEPLOY - supports
+    exact-IP entries (back-compat) AND CIDR ranges (``10.0.0.0/8``; ``0.0.0.0/0`` / ``::/0``
+    for open). This lets the app-layer gate use the SAME CIDR syntax as the Caddy
+    ADMIN_ALLOW_IP, so an operator running the panel open (guarded by argon2 + 2FA + JWT)
+    can set ADMIN_IP_ALLOWLIST=0.0.0.0/0 to satisfy the required-in-prod check instead of
+    leaving it empty (which fails the boot check) or exact-matching every dynamic IP."""
+    import ipaddress
+
+    if client in allow:  # exact string match — fast path + back-compat
+        return True
+    try:
+        ip = ipaddress.ip_address(client)
+    except ValueError:
+        return False
+    for entry in allow:
+        try:
+            if ip in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue  # not a CIDR/IP entry (exact match already handled above)
+    return False
+
+
 async def ip_allowlisted(request: Request) -> None:
     allow = _allowlist()
     if not allow:  # empty list = open (dev)
         return
     client = request.client.host if request.client else ""
-    if client not in allow:
+    if not _ip_matches(client, allow):
         raise HTTPException(status_code=403, detail="ip_not_allowed")
 
 
