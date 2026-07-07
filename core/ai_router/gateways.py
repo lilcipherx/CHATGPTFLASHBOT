@@ -311,6 +311,15 @@ class OpenRouterMediaGateway(MediaGateway):
     kind = "openrouter"
     default_base_url = "https://openrouter.ai/api/v1"
 
+    # OpenRouter's /images endpoint is OpenAI-Images shaped, so the bot's aspect
+    # ratio maps to a concrete pixel size the same way ApimartGateway does. Without
+    # this the user's 9:16 / 4:3 choice was silently dropped and every image came
+    # back square (1024x1024).
+    _RATIO_TO_SIZE = {
+        "1:1": "1024x1024", "16:9": "1536x1024", "9:16": "1024x1536",
+        "4:3": "1536x1024", "3:4": "1024x1536",
+    }
+
     async def generate_image(
         self, model: str, prompt: str, cfg: dict, **_: object
     ) -> list[ImageResult]:
@@ -320,11 +329,21 @@ class OpenRouterMediaGateway(MediaGateway):
 
         import httpx
 
+        # FIX: OPENROUTER-MEDIA - honour the requested count + aspect ratio instead of
+        # dropping cfg. A count>1 request now asks OpenRouter for N images (was: always
+        # 1, then partially refunded) and the size follows the user's ratio.
+        cfg = cfg or {}
+        body = {
+            "model": model,
+            "prompt": prompt,
+            "n": max(1, int(cfg.get("count", 1) or 1)),
+            "size": self._RATIO_TO_SIZE.get(cfg.get("ratio", "1:1"), "1024x1024"),
+        }
         async with httpx.AsyncClient(timeout=180) as http:
             r = await http.post(
                 f"{self.base_url}/images",
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                json={"model": model, "prompt": prompt},
+                json=body,
             )
             r.raise_for_status()
             body = r.json()
@@ -397,19 +416,27 @@ class OpenRouterMediaGateway(MediaGateway):
                 return JobStatus("failed", error="openrouter: no video url")
             # unsigned_urls require our Bearer to download → fetch + re-host so the
             # result is a public URL the video worker/Telegram can actually fetch.
-            try:
-                async with httpx.AsyncClient(timeout=300) as http:
-                    vr = await http.get(
-                        content_url, headers={"Authorization": f"Bearer {self.api_key}"}
-                    )
-                    vr.raise_for_status()
-                    video_bytes = vr.content
-                from core.services import storage
+            # FIX: OPENROUTER-MEDIA - retry a transient network/storage hiccup twice
+            # before failing: the video is already generated (and billed upstream), so
+            # a single blip on download/save must not discard it and refund the user.
+            from core.services import storage
 
-                public = await storage.save_upload(video_bytes, "mp4", prefix="results")
-                return JobStatus("complete", result_url=public)
-            except Exception as exc:  # noqa: BLE001 — surface as a job failure → refund
-                return JobStatus("failed", error=f"openrouter: video fetch failed: {exc}")
+            last_exc: Exception | None = None
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient(timeout=300) as http:
+                        vr = await http.get(
+                            content_url, headers={"Authorization": f"Bearer {self.api_key}"}
+                        )
+                        vr.raise_for_status()
+                        video_bytes = vr.content
+                    public = await storage.save_upload(video_bytes, "mp4", prefix="results")
+                    return JobStatus("complete", result_url=public)
+                except Exception as exc:  # noqa: BLE001 — surface as a job failure → refund
+                    last_exc = exc
+                    if attempt < 2:
+                        await asyncio.sleep(2)
+            return JobStatus("failed", error=f"openrouter: video fetch failed: {last_exc}")
         return JobStatus("processing")
 
 

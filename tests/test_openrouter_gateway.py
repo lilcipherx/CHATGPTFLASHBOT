@@ -84,6 +84,20 @@ async def test_generate_image_decodes_base64(monkeypatch):
     assert out[0].data == raw and out[0].url is None
 
 
+async def test_generate_image_maps_ratio_and_count(monkeypatch):
+    raw = b"x"
+    b64 = base64.b64encode(raw).decode()
+
+    def handler(method, url, kw):
+        # cfg is honoured: 9:16 → portrait size, count → n (was silently dropped)
+        assert kw["json"]["size"] == "1024x1536"
+        assert kw["json"]["n"] == 3
+        return _Resp({"data": [{"b64_json": b64}]})
+
+    _patch_httpx(monkeypatch, handler)
+    await _gw().generate_image("m", "p", {"ratio": "9:16", "count": 3})
+
+
 async def test_generate_image_accepts_url_form(monkeypatch):
     _patch_httpx(monkeypatch, lambda *a: _Resp({"data": [{"url": "https://img/x.png"}]}))
     out = await _gw().generate_image("m", "p", {})
@@ -173,3 +187,54 @@ async def test_video_poll_completed_no_url_fails(monkeypatch):
     _patch_httpx(monkeypatch, lambda *a: _Resp({"status": "completed", "unsigned_urls": []}))
     st = await _gw().poll("job-1")
     assert st.status == "failed"
+
+
+async def test_video_poll_download_retries_transient(monkeypatch):
+    """A transient download blip is retried, not turned into a refund."""
+    async def _no_sleep(_):
+        return None
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    async def fake_save_upload(data, ext, *, prefix="uploads"):
+        return "https://cdn.local/results/vid.mp4"
+
+    from core.services import storage
+    monkeypatch.setattr(storage, "save_upload", fake_save_upload)
+    calls = {"content": 0}
+
+    def handler(method, url, kw):
+        if method == "GET" and url.endswith("/videos/job-1"):
+            return _Resp({
+                "status": "completed",
+                "unsigned_urls": ["https://openrouter.ai/api/v1/videos/job-1/content"],
+            })
+        if "content" in url:
+            calls["content"] += 1
+            if calls["content"] == 1:
+                return _Resp(status=503)   # transient upstream error
+            return _Resp(content=b"MP4BYTES")
+        raise AssertionError(f"unexpected {method} {url}")
+
+    _patch_httpx(monkeypatch, handler)
+    st = await _gw().poll("job-1")
+    assert st.status == "complete"
+    assert calls["content"] == 2   # failed once, retried, then succeeded
+
+
+# ---------- storage: idempotent re-host of our own URLs ----------
+
+def test_is_owned_url(monkeypatch):
+    from core.services import storage
+    assert storage.is_owned_url("/media/results/x.mp4") is True
+    assert storage.is_owned_url("https://openrouter.ai/x.mp4") is False
+    monkeypatch.setattr(storage.settings, "s3_public_url", "https://cdn.local")
+    assert storage.is_owned_url("https://cdn.local/results/x.mp4") is True
+    assert storage.is_owned_url("https://evil.com/results/x.mp4") is False
+
+
+async def test_rehost_skips_our_own_url(monkeypatch):
+    """rehost_remote returns an already-owned URL unchanged (no second download)."""
+    from core.services import storage
+    monkeypatch.setattr(storage.settings, "s3_public_url", "https://cdn.local")
+    out = await storage.rehost_remote("https://cdn.local/results/vid.mp4")
+    assert out == "https://cdn.local/results/vid.mp4"

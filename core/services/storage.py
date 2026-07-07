@@ -102,6 +102,19 @@ async def _s3_put(key: str, data: bytes, ext: str) -> str:
         )
 
 
+def is_owned_url(url: str) -> bool:
+    """True if ``url`` already points at OUR storage — a local ``/media/...`` file or
+    an object under the configured ``S3_PUBLIC_URL``. Used to skip a redundant re-host
+    of a result we just saved ourselves (e.g. the OpenRouter gateway auth-downloads and
+    re-hosts its video before returning it)."""
+    if not url:
+        return False
+    if url.startswith("/media/"):
+        return True
+    pub = (settings.s3_public_url or "").rstrip("/")
+    return bool(pub and url.startswith(pub + "/"))
+
+
 async def delete(url: str) -> bool:
     """Best-effort delete of one of OUR stored objects, by its URL. Local `/media/...`
     files and S3 objects served under ``S3_PUBLIC_URL`` are removed; provider URLs and
@@ -263,6 +276,12 @@ async def rehost_remote(
     falls back to the original provider URL. Never raises."""
     if not url or not url.lower().startswith(("http://", "https://")):
         return None
+    # FIX: OPENROUTER-MEDIA - idempotent re-host. A result already in OUR storage
+    # (the OpenRouter gateway auth-downloads + re-hosts its video itself, returning our
+    # S3_PUBLIC_URL) must not be downloaded and re-uploaded a second time — return it
+    # unchanged so the worker keeps the existing URL without duplicating the object.
+    if is_owned_url(url):
+        return url
     # FIX: H3 - reject SSRF targets BEFORE the worker fetches them. A provider that
     # returns http://169.254.169.254/... would otherwise have us download the cloud
     # metadata response and re-host it inside our own storage.
