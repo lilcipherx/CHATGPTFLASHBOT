@@ -26,6 +26,11 @@ function cspApiOrigin(apiBase: string): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
+    // FIX: AUDIT13-MINIAPP-BASE - Caddy serves this SPA under /miniapp/ (handle
+    // /miniapp/* + strip_prefix), so assets must be referenced as /miniapp/assets/*.
+    // Without this, index.html shipped /assets/* (default base "/"), which fell through
+    // Caddy's handle /* to the API → 404 → blank white screen. Mirrors admin's base.
+    base: "/miniapp/",
     plugins: [react(), cspApiOrigin(env.VITE_API_BASE ?? "")],
     // Dev: proxy API calls to the local backend so the relative `/api/*` requests
     // in src/api/client.ts resolve without CORS / VITE_API_BASE wiring.

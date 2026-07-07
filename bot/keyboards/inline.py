@@ -158,7 +158,15 @@ def model_keyboard(
     if models is None:
         b.adjust(1, 2, 2, 2, 2, 1)
     else:
-        b.adjust(1)
+        # FIX: UX - lay the admin DB catalog out 2-per-row (was a single column) so the
+        # picker is compact and symmetric; the Close button always sits alone on the last
+        # row. `items` is the model list; an odd count leaves the last model on its own row.
+        n = len(items)
+        rows = [2] * (n // 2)
+        if n % 2:
+            rows.append(1)
+        rows.append(1)  # Close on its own full-width row
+        b.adjust(*rows)
     return b.as_markup()
 
 
