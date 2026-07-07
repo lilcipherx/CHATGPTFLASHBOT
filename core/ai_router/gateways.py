@@ -1,0 +1,305 @@
+"""Media aggregator gateways — one adapter per multi-provider gateway.
+
+A media gateway is an external service that exposes MANY image/video/music models
+behind ONE key (Kie.ai, MuAPI, APIMart…). Unlike OmniRoute (text, OpenAI-chat
+shaped), media gateways are task-based: submit → poll → result URL.
+
+All gateways share the same async interface so the workers and the DB-driven
+account router (core.services.ai_routing) treat them uniformly:
+
+    submit(model, params) -> task_id
+    poll(task_id)        -> JobStatus(status, result_url, error)
+    generate_image(model, prompt, cfg) -> [ImageResult]   (submit+poll wrapper)
+
+`build_gateway(kind, api_key, base_url)` constructs the right adapter from an
+AIAccount row. Endpoint paths/auth below are taken from each gateway's public
+docs; response *field* locations vary per model, so the parsers are defensive and
+should be confirmed against a live key (see per-class notes).
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+from core.ai_router.base import ImageResult, JobStatus, ProviderUnavailable
+
+
+class MediaGateway:
+    """Base task-based gateway. Subclasses implement submit() + poll()."""
+
+    kind = "base"
+    default_base_url = ""
+
+    def __init__(self, api_key: str, base_url: str | None = None):
+        self.api_key = api_key or ""
+        self.base_url = (base_url or self.default_base_url).rstrip("/")
+
+    def is_available(self) -> bool:
+        return bool(self.api_key and self.base_url)
+
+    async def submit(self, model: str, params: dict) -> str:  # pragma: no cover - abstract
+        raise ProviderUnavailable(self.kind)
+
+    async def poll(self, task_id: str) -> JobStatus:  # pragma: no cover - abstract
+        raise ProviderUnavailable(self.kind)
+
+    async def generate_image(
+        self, model: str, prompt: str, cfg: dict, *, poll_interval: int = 2, max_polls: int = 60
+    ) -> list[ImageResult]:
+        """Synchronous-feel image generation on top of submit/poll (most media
+        gateways generate images as async tasks too)."""
+        if not self.is_available():
+            raise ProviderUnavailable(self.kind)
+        task_id = await self.submit(model, {"prompt": prompt, **(cfg or {})})
+        for _ in range(max_polls):
+            await asyncio.sleep(poll_interval)
+            st = await self.poll(task_id)
+            if st.status == "complete" and st.result_url:
+                return [ImageResult(url=st.result_url)]
+            if st.status == "failed":
+                raise RuntimeError(st.error or f"{self.kind} image failed")
+        raise RuntimeError(f"{self.kind} image timed out")
+
+
+def _first_url(obj: Any) -> str | None:
+    """Walk an arbitrary JSON result and return the first http(s) URL found.
+
+    Media gateways nest the output URL differently per model (resultUrls[0],
+    output.url, video_url, audio_url, data[0].url…); this finds it without us
+    hard-coding every model's shape. Used only as a LAST resort by ``_result_url``
+    after the known result fields are checked, so it can't shadow them."""
+    if isinstance(obj, str):
+        return obj if obj.startswith("http") else None
+    if isinstance(obj, dict):
+        for v in obj.values():
+            url = _first_url(v)
+            if url:
+                return url
+    if isinstance(obj, list):
+        for v in obj:
+            url = _first_url(v)
+            if url:
+                return url
+    return None
+
+
+# Keys that hold the actual generated media, in priority order. Checked BEFORE the
+# generic walk so a preview/thumbnail/avatar URL the provider happens to place
+# earlier in the JSON can't be returned instead of the real result.
+_RESULT_KEYS = (
+    "resultUrls", "result_urls", "resultUrl", "result_url",
+    "videoUrl", "video_url", "audioUrl", "audio_url",
+    "imageUrl", "image_url", "url", "output", "outputs", "result", "data",
+)
+
+
+def _result_url(obj: Any) -> str | None:
+    """Extract the generated media URL, preferring known result fields over a
+    generic scan. Falls back to ``_first_url`` only when no known field yields a
+    URL, so an unusually-shaped response still resolves rather than failing."""
+    if isinstance(obj, dict):
+        for key in _RESULT_KEYS:
+            if key in obj:
+                url = _first_url(obj[key])
+                if url:
+                    return url
+    return _first_url(obj)
+
+
+class KieGateway(MediaGateway):
+    """Kie.ai unified jobs API (image/video/music). Bearer auth, async tasks.
+
+    Docs: POST /api/v1/jobs/createTask {model, input} -> data.taskId;
+          GET  /api/v1/jobs/recordInfo?taskId= -> data.state + data.resultJson.
+    """
+
+    kind = "kie"
+    default_base_url = "https://api.kie.ai"
+    _DONE = {"success"}
+    _FAIL = {"fail"}
+
+    async def submit(self, model: str, params: dict) -> str:
+        if not self.is_available():
+            raise ProviderUnavailable(self.kind)
+        import httpx
+
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.post(
+                f"{self.base_url}/api/v1/jobs/createTask",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"model": model, "input": params or {}},
+            )
+            r.raise_for_status()
+            # FIX: AUDIT13-L4 - tolerate a top-level array response (mirrors AI-17 for
+            # Suno); .get() on a list would raise AttributeError after the user is charged.
+            _body = r.json()
+            data = (_body.get("data") if isinstance(_body, dict) else {}) or {}
+        task_id = data.get("taskId") or data.get("task_id")
+        if not task_id:
+            raise RuntimeError("kie: no taskId in createTask response")
+        return str(task_id)
+
+    async def poll(self, task_id: str) -> JobStatus:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.get(
+                f"{self.base_url}/api/v1/jobs/recordInfo",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                params={"taskId": task_id},
+            )
+            r.raise_for_status()
+            data = r.json().get("data") or {}
+        return self._to_status(data)
+
+    @classmethod
+    def _to_status(cls, data: dict) -> JobStatus:
+        state = (data.get("state") or "").lower()
+        if state in cls._FAIL:
+            return JobStatus("failed", error=data.get("failMsg") or "kie failed")
+        if state in cls._DONE:
+            raw = data.get("resultJson")
+            parsed = raw
+            if isinstance(raw, str) and raw:
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    parsed = raw
+            url = _result_url(parsed)
+            if url:
+                return JobStatus("complete", result_url=url)
+            return JobStatus("failed", error="kie: no result url")
+        return JobStatus("processing")
+
+
+class MuapiGateway(MediaGateway):
+    """MuAPI (muapi.ai) — x-api-key auth, async predictions.
+
+    Docs: POST /api/v1/{model-slug} {prompt,...} -> request_id;
+          GET  /api/v1/predictions/{request_id}/result -> status + output url.
+    """
+
+    kind = "muapi"
+    default_base_url = "https://api.muapi.ai"
+    _DONE = {"completed", "complete", "succeeded", "success"}
+    _FAIL = {"failed", "error", "canceled", "cancelled"}
+
+    async def submit(self, model: str, params: dict) -> str:
+        if not self.is_available():
+            raise ProviderUnavailable(self.kind)
+        import httpx
+
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.post(
+                f"{self.base_url}/api/v1/{model}",
+                headers={"x-api-key": self.api_key},
+                json=params or {},
+            )
+            r.raise_for_status()
+            # FIX: AUDIT13-L4 - tolerate a top-level array response (mirrors AI-17).
+            data = r.json()
+            if not isinstance(data, dict):
+                data = {}
+        req_id = data.get("request_id") or data.get("id")
+        if not req_id:
+            raise RuntimeError("muapi: no request_id in submit response")
+        return str(req_id)
+
+    async def poll(self, task_id: str) -> JobStatus:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.get(
+                f"{self.base_url}/api/v1/predictions/{task_id}/result",
+                headers={"x-api-key": self.api_key},
+            )
+            r.raise_for_status()
+            data = r.json()
+        return self._to_status(data)
+
+    @classmethod
+    def _to_status(cls, data: dict) -> JobStatus:
+        status = (data.get("status") or "").lower()
+        if status in cls._FAIL:
+            return JobStatus("failed", error=data.get("error") or "muapi failed")
+        if status in cls._DONE:
+            payload = data.get("outputs") or data.get("output") or data.get("result") or data
+            url = _result_url(payload)
+            if url:
+                return JobStatus("complete", result_url=url)
+            return JobStatus("failed", error="muapi: no result url")
+        return JobStatus("processing")
+
+
+class ApimartGateway(MediaGateway):
+    """APIMart — OpenAI-compatible gateway. Bearer auth.
+
+    Images use the OpenAI Images schema (POST /v1/images/generations). Async
+    video/music task endpoints are NOT in the OpenAI spec and must be confirmed
+    against a live APIMart key before wiring, so submit/poll raise until then.
+
+    FIX: AI-21 - added `supports_async_media = False` so media_dispatch.resolve_backends
+    can pre-filter this gateway for video/music models instead of letting the user
+    charge for a job that always refunds at submit time. Image generation still
+    works (generate_image is fully wired).
+    """
+
+    kind = "apimart"
+    default_base_url = "https://api.apimart.ai/v1"
+    # FIX: AI-21 - flag this gateway as NOT supporting async video/music submit.
+    # media_dispatch should skip it for video/music modality and only use it for
+    # image generation (where generate_image is fully implemented).
+    supports_async_media: bool = False
+
+    _RATIO_TO_SIZE = {
+        "1:1": "1024x1024", "16:9": "1536x1024", "9:16": "1024x1536",
+        "4:3": "1536x1024", "3:4": "1024x1536",  # FIX: M16 - valid gpt-image-1 sizes
+    }
+
+    async def generate_image(
+        self, model: str, prompt: str, cfg: dict, **_: object
+    ) -> list[ImageResult]:
+        if not self.is_available():
+            raise ProviderUnavailable(self.kind)
+        import httpx
+
+        cfg = cfg or {}
+        async with httpx.AsyncClient(timeout=120) as http:
+            r = await http.post(
+                f"{self.base_url}/images/generations",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "n": int(cfg.get("count", 1)),
+                    "size": self._RATIO_TO_SIZE.get(cfg.get("ratio", "1:1"), "1024x1024"),
+                },
+            )
+            r.raise_for_status()
+            items = r.json().get("data") or []
+        results = [ImageResult(url=it.get("url"), data=None) for it in items if it.get("url")]
+        if not results:
+            raise RuntimeError("apimart: no image url in response")
+        return results
+
+    async def submit(self, model: str, params: dict) -> str:
+        # APIMart async media (video/music) endpoint not yet confirmed from docs.
+        # FIX: AI-21 - this raise is correct, but callers should pre-filter via
+        # `supports_async_media` so the user never reaches this point.
+        raise ProviderUnavailable(f"{self.kind}: async media endpoint unconfirmed")
+
+
+# backend kind -> gateway class
+MEDIA_GATEWAYS: dict[str, type[MediaGateway]] = {
+    "kie": KieGateway,
+    "muapi": MuapiGateway,
+    "apimart": ApimartGateway,
+}
+
+
+def build_gateway(kind: str, api_key: str, base_url: str | None = None) -> MediaGateway | None:
+    """Construct the media gateway for an AIAccount kind, or None if the kind is
+    not a media gateway (e.g. 'omniroute'/'openrouter' are text, handled elsewhere)."""
+    cls = MEDIA_GATEWAYS.get(kind)
+    return cls(api_key, base_url) if cls else None

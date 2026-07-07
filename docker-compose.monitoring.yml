@@ -1,0 +1,91 @@
+# Observability stack: Prometheus + Alertmanager + Grafana + Loki + Promtail
+# + Postgres/Redis exporters.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# It joins the app's default network so Prometheus can scrape `api:8000` and the
+# exporters can reach `postgres` / `redis` by service name. Grafana is published on
+# :3000 — keep it behind the firewall / VPN (or front with Caddy + IP allow-list).
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    restart: always
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    environment:
+      ALERT_BOT_TOKEN: ${ALERT_BOT_TOKEN:?required}  # FIX: AUDIT-17
+      ALERT_CHAT_ID: ${ALERT_CHAT_ID:?required}  # FIX: B11
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--config.expand-env=true"]  # FIX: B11
+    restart: always
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?required}  # FIX: L13 - was :-admin default
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on: [prometheus, loki]
+    restart: always
+
+  loki:
+    image: grafana/loki:3.3.2
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    restart: always
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on: [loki]
+    restart: always
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-aiobot}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-aiobot}?sslmode=disable"  # FIX: AUDIT-151
+    depends_on: [prometheus]
+    restart: always
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    depends_on: [prometheus]
+    restart: always
+
+  # FIX: AUDIT-M6 - host metrics exporter. Without it the DiskFull and HostMemoryHigh
+  # alerts (node_filesystem_* / node_memory_*) had no data source and never fired.
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    depends_on: [prometheus]
+    restart: always
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:

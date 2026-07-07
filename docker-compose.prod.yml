@@ -1,0 +1,158 @@
+# Production stack: webhook bot + API behind Caddy (TLS), workers, backups.
+# Build the SPAs first:  (cd miniapp && npm ci && npm run build) ; (cd admin && npm ci && npm run build)
+# Then:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    # Headroom above the default 100 so the app pools + PgBouncer's server pool
+    # fit comfortably. PgBouncer (below) is still what keeps app connections low.
+    command: ["postgres", "-c", "max_connections=200"]
+    ports: []          # not exposed publicly in prod
+    # FIX: H11 - require POSTGRES_PASSWORD (was inheriting :-aiobot default from base).
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    restart: always
+    # FIX: AUDIT-M9 - cap resources so one container can't OOM the whole host (there
+    # were NO limits anywhere in prod). Values are GENEROUS starting points — TUNE to
+    # your host's RAM/CPU. Honored by `docker compose` v2 (deploy.resources.limits).
+    deploy:
+      resources:
+        limits: { memory: 2g, cpus: "2.0" }
+
+  # Connection multiplexer (transaction pooling). To use it: point DATABASE_URL at
+  #   postgresql+asyncpg://$POSTGRES_USER:$POSTGRES_PASSWORD@pgbouncer:6432/$POSTGRES_DB
+  # and set DB_PGBOUNCER=true in .env. Hundreds of app connections then collapse
+  # onto DEFAULT_POOL_SIZE real Postgres connections, so scaling gunicorn/workers
+  # no longer risks TooManyConnections.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB:-aiobot}
+      DB_USER: ${POSTGRES_USER:-aiobot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POOL_MODE: transaction
+      LISTEN_PORT: "6432"
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "40"
+      AUTH_TYPE: scram-sha-256
+    depends_on:
+      - postgres
+    ports: []          # internal only — reached by the app at pgbouncer:6432
+    restart: always
+    deploy:  # FIX: AUDIT13-L25 - was unbounded (AUDIT-M9 only covered pg/redis/bot/api/worker/beat)
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
+
+  redis:
+    ports: []
+    restart: always
+    deploy:  # FIX: AUDIT-M9 - tune to host
+      resources:
+        limits: { memory: 1g, cpus: "1.0" }
+
+  omniroute:
+    # Dashboard not exposed publicly — reached only via Caddy on the IP-restricted
+    # omniroute.{$DOMAIN} host below; the app reaches it at http://omniroute:20128.
+    ports: []
+    restart: always
+    deploy:  # FIX: AUDIT13-L25
+      resources:
+        limits: { memory: 512m, cpus: "0.5" }
+
+  # FIX: AUDIT-FINAL-12 - LiteLLM inherits `ports: - "4000:4000"` from the base
+  # compose. In prod this exposes the LiteLLM proxy + admin UI publicly — anyone
+  # who reaches the host on port 4000 can hit /v1/* with no auth (or use the UI
+  # to enumerate model configs). Override to close the port: the app reaches
+  # LiteLLM in-network at http://litellm:4000, no public exposure needed.
+  litellm:
+    ports: []
+    restart: always
+    deploy:  # FIX: AUDIT13-L25 - litellm can be memory-heavy; bound it so it can't OOM the host
+      resources:
+        limits: { memory: 1g, cpus: "1.0" }
+
+  minio:
+    ports: []
+    restart: always
+    deploy:  # FIX: AUDIT13-L25
+      resources:
+        limits: { memory: 1g, cpus: "1.0" }
+
+  bot:
+    command: python -m bot.main
+    environment:
+      BOT_MODE: webhook
+    restart: always
+    deploy:  # FIX: AUDIT-M9 - tune to host
+      resources:
+        limits: { memory: 1g, cpus: "1.0" }
+
+  api:
+    # --forwarded-allow-ips="*" lets uvicorn trust X-Forwarded-For/-Proto and
+    # rewrite request.client.host from it. Safe ONLY because (a) the api port is
+    # never exposed publicly (ports: []) — only Caddy can reach it — and (b) the
+    # Caddyfile REPLACES X-Forwarded-For with the real client IP (header_up ...
+    # {remote_host}) rather than appending, so a client-supplied XFF can't poison
+    # request.client.host. This is what makes the login-audit IP and the YooKassa
+    # webhook source-IP allow-list trustworthy behind Caddy.
+    command: gunicorn api.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000 --forwarded-allow-ips="*"
+    ports: []          # reached only via Caddy
+    restart: always
+    deploy:  # FIX: AUDIT-M9 - tune to host (4 gunicorn workers → give it headroom)
+      resources:
+        limits: { memory: 2g, cpus: "2.0" }
+
+  worker:
+    restart: always
+    deploy:  # FIX: AUDIT-M9 - tune to host (media/AI payloads can be memory-heavy)
+      resources:
+        limits: { memory: 2g, cpus: "2.0" }
+
+  # Single scheduler (defined in the base compose as `arq workers.main.BeatSettings`).
+  # Keep it at ONE replica — only the `worker` service may be scaled.
+  beat:
+    restart: always
+    deploy:  # FIX: AUDIT-M9 - tune to host
+      resources:
+        limits: { memory: 512m, cpus: "0.5" }
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - api
+    environment:
+      DOMAIN: ${DOMAIN:?required}  # FIX: AUDIT-17
+      ADMIN_ALLOW_IP: ${ADMIN_ALLOW_IP:?required}  # FIX: AUDIT-17
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./miniapp/dist:/srv/miniapp:ro
+      - ./admin/dist:/srv/admin:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: always
+    deploy:  # FIX: AUDIT13-L25
+      resources:
+        limits: { memory: 256m, cpus: "1.0" }
+
+  backup:
+    image: postgres:16-alpine
+    depends_on:
+      - postgres
+    env_file: .env
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - backups:/backups
+    restart: always
+    deploy:  # FIX: AUDIT13-L25
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
+
+volumes:
+  caddy_data:
+  caddy_config:
+  backups:

@@ -1,0 +1,177 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aiobot
+      # Override in prod via POSTGRES_PASSWORD in .env (and match it in DATABASE_URL).
+      # Defaults to 'aiobot' for zero-config local dev only.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aiobot}
+      POSTGRES_DB: aiobot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiobot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      # Root creds = the keys the app authenticates with (S3_KEY/S3_SECRET), so
+      # they stay in sync from one source. Defaults to minioadmin for zero-config
+      # local dev only; in prod set S3_KEY/S3_SECRET in .env (>= 8 chars) and these
+      # follow automatically. NEVER ship minioadmin to prod.
+      MINIO_ROOT_USER: ${S3_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET:-minioadmin}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # OmniRoute — self-hosted, OpenAI-compatible TEXT gateway (226 providers, many
+  # free). The bot/api/worker reach it in-network at http://omniroute:20128/v1.
+  # You connect providers + create an API key in its dashboard, then add that key
+  # as an AIAccount (kind=omniroute, modality=text) in the admin panel.
+  # NOTE: text only — image/video/music need a media aggregator, not OmniRoute.
+  omniroute:
+    image: diegosouzapw/omniroute:latest
+    volumes:
+      # Persists connected providers / OAuth sessions / generated keys / its DB.
+      # Confirm this path against OmniRoute's SQLITE_RUNTIME docs for your version.
+      - omniroute_data:/root/.omniroute
+    ports:
+      - "20128:20128"   # dev: open the dashboard at http://localhost:20128
+    restart: unless-stopped
+
+  # LiteLLM — self-hosted, OpenAI-compatible gateway unifying 100+ LLM providers
+  # behind one endpoint + master key. The bot/api/worker reach it in-network at
+  # http://litellm:4000/v1. Configure providers/models in litellm/config.yaml (keys
+  # via env below), then add its master key as an AIAccount (kind=litellm,
+  # modality=text, base_url=http://litellm:4000/v1) in the admin panel. Equal peer
+  # to OmniRoute — route per-model via each AIModel's backend pin (account_kind).
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?required}  # FIX: AUDIT-17 - no default weak key
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "4000:4000"   # dev: LiteLLM proxy + UI at http://localhost:4000
+    restart: always  # FIX: AI-23 - always restart so LLM routing survives daemon reboots (was: unless-stopped)
+
+  # One-shot schema migration. Runs `alembic upgrade head` to completion BEFORE any
+  # app process starts — bot/api/worker/beat all depend_on it with
+  # service_completed_successfully, so no app container can ever serve traffic against
+  # a schema behind head (the manual-migration footgun that left dev/rc DBs at 0020).
+  # restart "no": it must run once and exit 0, never restart-loop. Alembic is
+  # idempotent, so re-running on a redeploy with no new migrations is a safe no-op.
+  migrate:
+    build: .
+    # Schema first, then seed the AI model catalog so a fresh deploy can chat the
+    # moment an OmniRoute/LiteLLM account is added. The seed self-skips when the
+    # catalog already has rows, so it never clobbers an admin's later edits.
+    command: sh -c "alembic upgrade head && python -m scripts.seed_ai_models"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  bot:
+    build: .
+    command: python -m bot.main
+    # FIX: AUDIT-M5 - the Dockerfile HEALTHCHECK curls :8000/health/ready, but the
+    # bot serves no HTTP → it would be permanently "unhealthy". Disable the inherited
+    # check (liveness is covered by `restart`); only the api service serves HTTP.
+    healthcheck:
+      disable: true
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully   # FIX: AUDIT-M8 - fail closed; never serve traffic against a schema behind head if the migration failed.
+    restart: unless-stopped
+
+  api:
+    build: .
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully   # FIX: AUDIT-M8
+    # Liveness: a hung-but-running container (DB pool wedged, event loop stuck) won't
+    # be caught by `restart` alone. /health is a dependency-free 200. python+stdlib
+    # are in the app image, so no extra tooling needed.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: arq workers.main.WorkerSettings   # job pool — safe to scale (no cron)
+    healthcheck:
+      disable: true  # FIX: AUDIT-M5 - arq worker serves no HTTP; don't inherit the :8000 check.
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully   # FIX: AUDIT-M8
+    restart: unless-stopped
+
+  # Scheduler — owns the cron jobs (quota reset, sub expiry, avatar sweep). Run
+  # EXACTLY ONE replica so scheduled tasks never fire twice.
+  beat:
+    build: .
+    command: arq workers.main.BeatSettings     # single scheduler — DO NOT scale
+    healthcheck:
+      disable: true  # FIX: AUDIT-M5 - scheduler serves no HTTP; don't inherit the :8000 check.
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully   # FIX: AUDIT-M8
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:
+  omniroute_data:

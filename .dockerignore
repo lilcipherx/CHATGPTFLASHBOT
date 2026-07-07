@@ -1,0 +1,51 @@
+# --- VCS / virtualenvs / caches ---
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+# Agent worktrees hold full repo copies — never bake them into the image.
+.claude
+
+# --- Secrets (must never be copied into an image layer) ---
+.env
+*.env.local
+# FIX: N8 - admin bootstrap credentials leak; never bake into image
+ADMIN_LOGIN.txt
+.env.staging
+.env.staging.example
+
+# --- Node deps (SPAs are built separately; only their dist/ is needed) ---
+node_modules
+miniapp/node_modules
+admin/node_modules
+
+# FIX: AUDIT13-L26 - the runtime image runs only Python (Dockerfile installs no npm;
+# the SPAs are served by Caddy from bind-mounts). Keep their source + tests + load
+# tests OUT of the image to slim it and shrink the attack surface.
+miniapp/
+admin/
+tests/
+_uitest/
+loadtests/
+.github/
+docs/
+
+# --- Local data / runtime artifacts ---
+# NOTE: .dockerignore does NOT support inline comments — a trailing "# ..." is
+# treated as part of the pattern, so keep every comment on its own line.
+# dev.db, dev.db.bak.*
+*.db*
+*.sqlite3
+*.bak.*
+*.log
+# cloudflared.exe (~54 MB)
+*.exe
+# runtime user uploads — created in the container, not shipped
+media/
+
+# --- Docs (keep README for image metadata) ---
+*.md
+!README.md

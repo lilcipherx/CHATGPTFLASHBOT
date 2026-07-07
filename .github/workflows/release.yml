@@ -1,0 +1,61 @@
+name: Release
+
+# Build + publish the Docker image to GHCR on a version tag (vX.Y.Z), then
+# (optionally) trigger a deploy. Deploy is gated on the DEPLOY_WEBHOOK secret so
+# the pipeline is inert until you wire a target — no code change needed.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    needs: [lint, test]  # FIX: AUDIT-139 - gate image build on CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Metadata (tags/labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy (only if configured)
+        env:
+          DEPLOY_WEBHOOK: ${{ secrets.DEPLOY_WEBHOOK }}
+        run: |
+          if [ -z "${DEPLOY_WEBHOOK}" ]; then
+            echo "DEPLOY_WEBHOOK not set — skipping deploy. Add the secret to enable."
+            exit 0
+          fi
+          curl -fsSL -X POST "${DEPLOY_WEBHOOK}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"ref\":\"${GITHUB_REF_NAME}\",\"sha\":\"${GITHUB_SHA}\"}"

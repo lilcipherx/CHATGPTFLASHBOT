@@ -1,0 +1,132 @@
+groups:
+  - name: aibot-availability
+    rules:
+      - alert: ApiDown
+        expr: up{job="aibot-api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Core API is down"
+          description: "Prometheus cannot scrape api:8000/metrics for 2m."
+
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "PostgreSQL exporter down / DB unreachable"
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Redis exporter down / cache+queue unreachable"
+
+  - name: aibot-business
+    rules:
+      - alert: GenerationBacklog
+        expr: aibot_jobs_pending > 100
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Generation backlog building up"
+          description: "{{ $value }} jobs pending/processing for 10m — scale workers or check providers."
+
+      - alert: JobFailuresSpiking
+        expr: increase(aibot_jobs_failed[15m]) > 20
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "Generation failures spiking"
+          description: "{{ $value }} jobs failed in 15m — check AI provider health / keys."
+
+  - name: aibot-redis-saturation
+    rules:
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Redis memory > 90%"
+
+  - name: aibot-postgres-saturation
+    rules:
+      - alert: PostgresConnectionsHigh
+        expr: sum(pg_stat_activity_count) > 150
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Postgres connections high (>150)"
+          description: "Approaching max_connections=200 — consider PgBouncer / fewer pool workers."
+
+  # FIX: AUDIT-FINAL-13 - the original alerts.yml was missing 6 critical alert
+  # rules required by the runbook + spec. Without them, an operator gets no
+  # page when (a) the bot process dies, (b) the API throws a 5xx storm,
+  # (c) payments start failing, (d) an AI provider rate-limits us, (e) the
+  # disk fills (taking down Postgres + logs), or (f) the host runs out of RAM.
+  # All rules below assume a `node_exporter` job is scraped (added to
+  # docker-compose.monitoring.yml + prometheus.yml alongside this fix).
+  - name: aibot-missing-alerts
+    rules:
+      # FIX: AUDIT-M6 - BotDown is DISABLED until the bot process exposes a metrics
+      # endpoint. The bot (python -m bot.main, aiogram polling) serves no HTTP, so
+      # there is no `bot:8001/metrics` to scrape and there is no `aibot-bot` job in
+      # prometheus.yml — the rule below would never have data and never fire (it only
+      # looked like coverage). Re-enable it together with a bot /metrics server + an
+      # `aibot-bot` scrape job. Adding the scrape job WITHOUT the endpoint would make
+      # this alert fire permanently (up==0), which is why it is not wired yet.
+      #   - alert: BotDown
+      #     expr: up{job="aibot-bot"} == 0
+      #     for: 2m
+      #     labels: { severity: critical }
+      #     annotations:
+      #       summary: "Telegram bot is down"
+      #       description: "Prometheus cannot scrape bot:8001/metrics for 2m — users get no responses."
+
+      # FIX: AUDIT13-M13 - DISABLED. These three rules referenced counters
+      # (aibot_http_requests_total / aibot_payments_failed_total / aibot_ai_provider_429_total)
+      # that the app never emits — /metrics (api/routers/health.py) exposes only the
+      # aibot_users_* and aibot_jobs_* gauges. With no data source these alerts could
+      # NEVER fire, giving a false sense of 5xx/payment-failure/429 coverage. Re-enable
+      # each rule ONLY together with an emitter: an HTTP middleware incrementing
+      # aibot_http_requests_total{status}, a payments hook for aibot_payments_failed_total,
+      # and an ai-router hook for aibot_ai_provider_429_total, all exposed in /metrics.
+      # (Same rationale as the disabled BotDown rule above.)
+      #   - alert: Api5xxSpike
+      #     expr: sum(rate(aibot_http_requests_total{status=~"5.."}[5m])) > 1
+      #     for: 2m
+      #     labels: { severity: warning }
+      #     annotations:
+      #       summary: "API 5xx error spike"
+      #       description: "More than 1 5xx/s for 2m — check api logs / Sentry."
+      #   - alert: PaymentFailureSpike
+      #     expr: sum(increase(aibot_payments_failed_total[15m])) > 10
+      #     for: 0m
+      #     labels: { severity: warning }
+      #     annotations:
+      #       summary: "Payment failures spiking"
+      #       description: "{{ $value }} failed payments in 15m — check gateway webhooks / keys."
+      #   - alert: AIProvider429Spike
+      #     expr: sum(increase(aibot_ai_provider_429_total[15m])) > 20
+      #     for: 0m
+      #     labels: { severity: warning }
+      #     annotations:
+      #       summary: "AI provider rate-limit (429) spike"
+      #       description: "{{ $value }} 429s in 15m — add capacity / switch routing."
+
+      - alert: DiskFull
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Disk <10% free on /"
+          description: "Postgres + Loki + backups will fail shortly. Free space NOW."
+
+      - alert: HostMemoryHigh
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Host memory >90%"
+          description: "Approaching OOM — raise mem_limits or add swap."

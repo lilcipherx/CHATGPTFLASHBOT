@@ -1,0 +1,73 @@
+"""Public gallery Mini App endpoints (ТЗ §4).
+
+Authenticates the same way as api.routers.miniapp — Telegram WebApp initData via
+`current_webapp_user` (with the dev bypass on ENV=dev|test). Mounted under /api,
+so routes resolve at /api/gallery and /api/gallery/submit."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.deps import current_webapp_user
+from core.db import get_session
+from core.services import gallery
+from core.services.gallery import ModerationRejected
+from core.services.users import get_or_create_user
+
+router = APIRouter(prefix="/gallery", tags=["gallery"])
+
+
+class SubmitRequest(BaseModel):
+    image_url: str
+    prompt: str | None = None
+
+
+def _card(item: gallery.GalleryItem) -> dict:
+    return {
+        "id": item.id,
+        "image_url": item.image_url,
+        "prompt": item.prompt,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+@router.post("/submit")
+async def submit_item(
+    req: SubmitRequest,
+    tg=Depends(current_webapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Submit one of the user's generated images to the public gallery for review."""
+    user, _created = await get_or_create_user(
+        session, tg["id"], tg.get("username"), tg.get("language_code")
+    )
+    if getattr(user, "is_banned", False):
+        raise HTTPException(status_code=403, detail="banned")
+    image_url = (req.image_url or "").strip()
+    if not image_url:
+        raise HTTPException(status_code=400, detail="image_url required")
+    # Only the app's own media (relative /media/...) or an http(s) URL. Reject
+    # javascript:/data:/file:/other schemes so an approved item can never become a
+    # content-injection sink for any consumer of the public gallery list.
+    if not (image_url.startswith(("http://", "https://")) or image_url.startswith("/media/")):
+        raise HTTPException(status_code=400, detail="invalid image url")
+    try:
+        item = await gallery.submit(
+            session, user.user_id, image_url, (req.prompt or "").strip() or None
+        )
+    except ModerationRejected as exc:
+        raise HTTPException(status_code=400, detail="prompt blocked by moderation") from exc
+    return {"id": item.id, "status": item.status}
+
+
+@router.get("")
+async def list_public(
+    limit: int = 30,
+    offset: int = 0,
+    tg=Depends(current_webapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """Public approved gallery, newest first (paginated)."""
+    items = await gallery.public_list(session, limit, offset)
+    return [_card(i) for i in items]

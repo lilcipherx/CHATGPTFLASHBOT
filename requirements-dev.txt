@@ -1,0 +1,14 @@
+# Dev / CI tooling (runtime deps live in requirements.txt).
+-r requirements.txt
+
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+ruff==0.15.17
+mypy==1.14.1
+pip-audit==2.7.3
+bandit==1.8.0
+
+# FIX: AUDIT-17 - moved from requirements.txt (dev/test only)
+aiosqlite==0.20.0
+fakeredis==2.26.1

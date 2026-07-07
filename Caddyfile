@@ -1,0 +1,57 @@
+# Caddyfile — reverse proxy + static SPA hosting.
+# Domain comes from the DOMAIN env var (falls back to the legacy duckdns host).
+{$DOMAIN:superaibot.duckdns.org} {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # FIX: AUDIT-M3 - was "nosiff" (typo) → browsers ignored it.
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # FIX: AUDIT-H4 - admin API is IP-restricted at the proxy layer (defense in
+    # depth on top of the app-layer ip_allowlisted check). ADMIN_ALLOW_IP must be
+    # a SPACE-separated list of IPs/CIDRs (Caddy remote_ip syntax).
+    @admin_api {
+        path /api/admin/*
+        not remote_ip {$ADMIN_ALLOW_IP:127.0.0.1/32}
+    }
+    respond @admin_api 403
+
+    # FIX: AUDIT-H3 - REPLACE X-Forwarded-For with the real peer IP so a client
+    # cannot spoof it (the API runs with --forwarded-allow-ips="*"). Applies to
+    # every upstream that trusts the client IP (webhook IP allowlist, admin audit).
+    handle /api/* {
+        reverse_proxy api:8000 {
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+    handle /webhook/* {
+        reverse_proxy api:8000 {
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+    handle /admin/* {
+        # FIX: AUDIT13-L24 - CSP for the admin SPA (it shipped none). Scoped to /admin
+        # only — a GLOBAL header CSP would intersect with the Mini App's own <meta> CSP
+        # and break its cross-origin connects. Admin is same-origin (self) with inline
+        # styles; adjust if the bundle grows external dependencies.
+        header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        uri strip_prefix /admin
+        root * /srv/admin
+        file_server
+        try_files {path} /index.html
+    }
+    handle /miniapp/* {
+        uri strip_prefix /miniapp
+        root * /srv/miniapp
+        file_server
+        try_files {path} /index.html
+    }
+    handle /* {
+        reverse_proxy api:8000 {
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+}

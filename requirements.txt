@@ -1,0 +1,55 @@
+# Direct dependencies, version-pinned. For supply-chain-hardened (hash-pinned,
+# tamper-evident) installs, generate requirements.lock via scripts/lock-deps.sh
+# and commit it — the Docker image then installs with --require-hashes from it.
+#
+# --- Core ---
+aiogram==3.15.0
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+pydantic==2.9.2
+pydantic-settings==2.7.1
+
+# --- DB / cache / queue ---
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+redis==5.2.1
+arq==0.26.3
+# FIX: AUDIT-17 - moved to requirements-dev.txt
+
+# --- Object storage ---
+aioboto3==13.3.0
+
+# --- AI providers ---
+openai==1.59.6
+anthropic==0.42.0
+# google-genai: moved off the pre-1.0 0.3.0 (unstable API) to a stable release.
+# The adapter already uses the stable unified API (genai.Client + aio.models.
+# generate_content), so this is API-compatible — but smoke-test the Gemini path
+# after upgrading.
+google-genai==2.8.0
+httpx==0.28.1
+
+# --- Payments ---
+yookassa==3.5.0
+stripe==11.4.1
+
+# --- Image upload validation (Mini App effects) ---
+pillow==12.2.0
+
+# --- Document extraction (Premium docs) ---
+pypdf==5.1.0
+python-docx==1.1.2
+openpyxl==3.1.5
+python-pptx==1.0.2
+
+# --- Utilities ---
+structlog==24.4.0
+sentry-sdk==2.19.2
+fluent.runtime==0.4.0
+python-multipart==0.0.20
+argon2-cffi==23.1.0
+pyotp==2.9.0
+pyjwt==2.10.1
+cryptography==44.0.0

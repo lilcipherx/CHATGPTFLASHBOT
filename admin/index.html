@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ИИ Бот №1 — Админ</title>
+    <!-- FIX: FRONTEND - admin panel CSP: same-origin only (admin SPA is same-origin
+         with the API in prod). No external scripts allowed — fonts/icons are
+         self-hosted via @fontsource. Blocks inline scripts and eval. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self'; frame-ancestors 'none';" />
+    <!-- Fonts self-hosted via @fontsource + material-symbols (main.tsx) — no Google
+         Fonts CDN, so icons + text render on blocked/offline networks too. -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

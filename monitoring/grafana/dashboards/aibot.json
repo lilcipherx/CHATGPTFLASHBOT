@@ -1,0 +1,63 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "title": "ИИ Бот №1 — Overview",
+  "tags": ["aibot"],
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "API up",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "mappings": [
+        { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+      ] } },
+      "targets": [{ "expr": "up{job=\"aibot-api\"}", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Total users",
+      "gridPos": { "h": 4, "w": 5, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "aibot_users_total", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Active premium",
+      "gridPos": { "h": 4, "w": 5, "x": 9, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "aibot_users_premium", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Banned users",
+      "gridPos": { "h": 4, "w": 4, "x": 14, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "aibot_users_banned", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Generation jobs pending/processing",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "aibot_jobs_pending", "refId": "A", "legendFormat": "pending" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Generation failures (rate over 15m)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "increase(aibot_jobs_failed[15m])", "refId": "A", "legendFormat": "failed/15m" }]
+    },
+    {
+      "type": "logs",
+      "title": "Application logs (errors)",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "{container=~\"aibot.*|.*api.*|.*bot.*|.*worker.*\"} |= \"error\"", "refId": "A" }]
+    }
+  ]
+}

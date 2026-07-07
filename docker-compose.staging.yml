@@ -1,0 +1,46 @@
+# Staging overlay — a production-shaped stack for pre-release verification.
+# Use a SEPARATE project name + env file so it never collides with prod data:
+#
+#   docker compose -p aibot-staging \
+#     --env-file .env.staging \
+#     -f docker-compose.yml -f docker-compose.staging.yml up -d
+#
+# Differences vs prod: ENV=staging, smaller pools, the API port is published on
+# 8001 so smoke tests / QA can hit it directly (still firewall it externally).
+services:
+  postgres:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  bot:
+    command: python -m bot.main
+    environment:
+      ENV: staging
+      BOT_MODE: ${BOT_MODE:-polling}
+    restart: unless-stopped
+
+  api:
+    # FIX: C4 - drop --forwarded-allow-ips="*": staging publishes 8001 directly (no
+    # Caddy to rewrite X-Forwarded-For), so trusting every XFF header lets a client
+    # forge request.client.host and bypass IP-allowlisted endpoints (admin login,
+    # YooKassa webhook). Default uvicorn (trust only 127.0.0.1) is correct here.
+    command: gunicorn api.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8000
+    environment:
+      ENV: staging
+      DB_POOL_SIZE: "5"
+      DB_MAX_OVERFLOW: "5"
+    ports:
+      - "8001:8000"   # staging-only: direct access for smoke tests / QA
+    restart: unless-stopped
+
+  worker:
+    environment:
+      ENV: staging
+    restart: unless-stopped
+
+  beat:
+    environment:
+      ENV: staging
+    restart: unless-stopped
