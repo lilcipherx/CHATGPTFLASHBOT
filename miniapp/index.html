@@ -7,14 +7,17 @@
          the app actually uses. Blocks inline script (no 'unsafe-inline' in script-src),
     --  blocks eval, restricts connect-src to same-origin + the Telegram SDK + the
          --  OpenAI/Google APIs the adapters call (so a future XSS can't phone home).
-    --  tg:// deep links are allowed for navigate-to. data: images are allowed for
-    --  the carousel previews (re-hosted results).
+    --  data: images are allowed for the carousel previews (re-hosted results).
+    --  NB: framing control (who may embed the Mini App) is a RESPONSE HEADER concern
+    --  (frame-ancestors / X-Frame-Options) set by Caddy per-path, NOT here — a <meta>
+    --  CSP cannot express frame-ancestors, and the removed `navigate-to` directive was
+    --  dropped from the CSP spec (browsers ignore it and log a warning).
     --  FIX: AUDIT-M16 - connect-src is 'self' because the shipped prod topology is
     --  SAME-ORIGIN (Caddy serves /miniapp and proxies /api on the same domain, so
     --  VITE_API_BASE="" ). If you deploy the Mini App on a DIFFERENT origin than the
     --  API (VITE_API_BASE=https://api.example.com), you MUST add that exact origin to
     --  connect-src below or every /api fetch is CSP-blocked while images still load. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://api.telegram.org https://api.openai.com https://generativelanguage.googleapis.com; frame-src 'self' https://web.telegram.org; navigate-to 'self' https: tg:;" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://api.telegram.org https://api.openai.com https://generativelanguage.googleapis.com; frame-src 'self' https://web.telegram.org;" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <!-- Fonts self-hosted via @fontsource (main.tsx) — no Google Fonts CDN. -->
     <title>ИИ Бот №1</title>

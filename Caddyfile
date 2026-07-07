@@ -6,8 +6,11 @@
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         # FIX: AUDIT-M3 - was "nosiff" (typo) → browsers ignored it.
         X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
         Referrer-Policy "strict-origin-when-cross-origin"
+        # FIX: FRONTEND - X-Frame-Options is NOT global anymore. A blanket "DENY" here
+        # also hit /miniapp, but Telegram Web opens Mini Apps inside an <iframe>, so DENY
+        # made the app blank in the web client. Framing is now set PER-PATH below: admin
+        # stays DENY, the Mini App is embeddable by Telegram origins ONLY.
     }
 
     # FIX: AUDIT-H4 - admin API is IP-restricted at the proxy layer (defense in
@@ -38,12 +41,19 @@
         # and break its cross-origin connects. Admin is same-origin (self) with inline
         # styles; adjust if the bundle grows external dependencies.
         header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        # FIX: FRONTEND - admin must never be framed (X-Frame-Options is no longer global).
+        header X-Frame-Options "DENY"
         uri strip_prefix /admin
         root * /srv/admin
         file_server
         try_files {path} /index.html
     }
     handle /miniapp/* {
+        # FIX: FRONTEND - the Mini App is embeddable by TELEGRAM ORIGINS ONLY (Telegram
+        # Web loads it in an <iframe>). frame-ancestors is a header-only directive, so it
+        # lives here, not in the app's <meta> CSP. No X-Frame-Options → not DENY-blocked;
+        # arbitrary third-party sites still can't frame it (not in the allowlist).
+        header Content-Security-Policy "frame-ancestors https://web.telegram.org https://telegram.org 'self'"
         uri strip_prefix /miniapp
         root * /srv/miniapp
         file_server
