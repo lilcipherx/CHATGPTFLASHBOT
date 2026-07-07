@@ -44,9 +44,14 @@ PROVIDERS: list[tuple[str, str, str]] = [
 
 _FIELD = {name: field for name, field, _ in PROVIDERS}
 
-# Reserved (non-provider) entry in the same KV row holding the OpenAI base URL
-# override. Stored in plaintext (it is an endpoint, not a secret).
+# Reserved (non-provider) entries in the same KV row holding endpoint/model
+# overrides. Stored in plaintext (they are an endpoint / model id, not secrets).
 _BASE_URL_KEY = "_openai_base_url"
+# FIX: AUDIT13-M2 - Suno base URL + model id, editable from the admin panel (parity
+# with the OpenAI base URL). Lets the operator set the exact "V5.5" model without a
+# redeploy; the music adapter reads settings.suno_base_url / settings.suno_model.
+_SUNO_BASE_URL_KEY = "_suno_base_url"
+_SUNO_MODEL_KEY = "_suno_model"
 
 # Snapshot the .env-provided values ONCE at import (before any DB override is
 # applied), so the admin UI can tell whether a key comes from .env or the DB, and
@@ -55,6 +60,8 @@ _ENV_DEFAULTS: dict[str, str] = {
     field: getattr(settings, field, "") for _n, field, _l in PROVIDERS
 }
 _ENV_OPENAI_BASE_URL: str = getattr(settings, "openai_base_url", "")
+_ENV_SUNO_BASE_URL: str = getattr(settings, "suno_base_url", "")
+_ENV_SUNO_MODEL: str = getattr(settings, "suno_model", "")
 
 
 def _mask(key: str) -> str:
@@ -91,7 +98,45 @@ async def apply_to_settings(session) -> int:
     base = stored.get(_BASE_URL_KEY)
     if base:
         settings.openai_base_url = base
+    # FIX: AUDIT13-M2 - Suno base URL + model overrides (plaintext). Keep .env default
+    # when unset (never blank an env value we didn't override).
+    suno_base = stored.get(_SUNO_BASE_URL_KEY)
+    if suno_base:
+        settings.suno_base_url = suno_base
+    suno_model = stored.get(_SUNO_MODEL_KEY)
+    if suno_model:
+        settings.suno_model = suno_model
     return applied
+
+
+async def get_suno_config(session) -> dict:
+    """Current Suno base URL + model, each with whether it comes from DB or .env."""
+    stored = await _load_raw(session)
+    db_base = stored.get(_SUNO_BASE_URL_KEY) or ""
+    db_model = stored.get(_SUNO_MODEL_KEY) or ""
+    return {
+        "base_url": {"value": db_base or _ENV_SUNO_BASE_URL, "source": "db" if db_base else "env"},
+        "model": {"value": db_model or _ENV_SUNO_MODEL, "source": "db" if db_model else "env"},
+    }
+
+
+async def set_suno_config(session, base_url: str, model: str) -> dict:
+    """Override (or, when blank, clear) the Suno base URL + model and apply them live."""
+    stored = await _load_raw(session)
+    base_url = (base_url or "").strip().rstrip("/")
+    model = (model or "").strip()
+    if base_url:
+        stored[_SUNO_BASE_URL_KEY] = base_url
+    else:
+        stored.pop(_SUNO_BASE_URL_KEY, None)
+    if model:
+        stored[_SUNO_MODEL_KEY] = model
+    else:
+        stored.pop(_SUNO_MODEL_KEY, None)
+    await _save_raw(session, stored)
+    settings.suno_base_url = base_url or _ENV_SUNO_BASE_URL
+    settings.suno_model = model or _ENV_SUNO_MODEL
+    return {"base_url": settings.suno_base_url, "model": settings.suno_model}
 
 
 async def get_openai_base_url(session) -> dict:

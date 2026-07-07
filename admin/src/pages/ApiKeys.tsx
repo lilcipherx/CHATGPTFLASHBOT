@@ -40,6 +40,10 @@ export function ApiKeys() {
   const [msg, setMsg] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [baseSrc, setBaseSrc] = useState<"db" | "env">("env");
+  // FIX: AUDIT13-M2 - Suno base URL + model, editable here.
+  const [sunoBase, setSunoBase] = useState("");
+  const [sunoModel, setSunoModel] = useState("");
+  const [sunoSrc, setSunoSrc] = useState<"db" | "env">("env");
   const [view, setView] = useState<"grid" | "table">("grid");
   const [q, setQ] = useState(""); const dq = useDebounced(q);
   const [fSrc, setFSrc] = useState("all");
@@ -51,6 +55,7 @@ export function ApiKeys() {
   const load = useCallback(() => {
     api.providerKeys().then(setRows).catch((e) => { setMsg(String(e)); setRows([]); });
     api.openaiBaseUrl().then((r) => { setBaseUrl(r.value); setBaseSrc(r.source); }).catch(() => {});
+    api.sunoConfig().then((r) => { setSunoBase(r.base_url.value); setSunoModel(r.model.value); setSunoSrc(r.base_url.source === "db" || r.model.source === "db" ? "db" : "env"); }).catch(() => {});
     // Real change history from the audit log (provider.key.* / base_url actions).
     api.audit({ limit: 200 }).then((es) => setHistory(es.filter((e) => e.action.startsWith("provider.")))).catch(() => setHistory([]));
   }, []);
@@ -74,6 +79,12 @@ export function ApiKeys() {
     if (baseUrl.trim() && !/^https?:\/\//.test(baseUrl.trim())) { toast("Base URL должен начинаться с http(s)://"); return; }
     setBusy("__base");
     try { const r = await api.setOpenaiBaseUrl(baseUrl); setMsg(`✅ OpenAI base URL: ${r.value}`); load(); }
+    catch (e) { toast(String(e)); } finally { setBusy(""); }
+  }
+  async function saveSunoConfig() {
+    if (sunoBase.trim() && !/^https?:\/\//.test(sunoBase.trim())) { toast("Suno Base URL должен начинаться с http(s)://"); return; }
+    setBusy("__suno");
+    try { const r = await api.setSunoConfig(sunoBase, sunoModel); setMsg(`✅ Suno: ${r.model || "(модель из .env)"} @ ${r.base_url || "(URL из .env)"}`); load(); }
     catch (e) { toast(String(e)); } finally { setBusy(""); }
   }
   async function bulkClear() {
@@ -166,6 +177,24 @@ export function ApiKeys() {
                 (with the previous baseUrl), so "Сброс" saved the OLD typed value as a DB
                 override instead of clearing it. Use a fresh arrow that reads the just-set "". */}
             <button className="btn ghost" disabled={busy === "__base"} title="Сбросить к значению из .env" onClick={() => { setBaseUrl(""); setBusy("__base"); (async () => { try { await api.setOpenaiBaseUrl(""); await load(); } catch (e) { setMsg(String(e)); } finally { setBusy(""); } })(); }}><span className="ms sm">restart_alt</span> Сброс</button>
+          </div>
+        </div>
+
+        {/* FIX: AUDIT13-M2 - Suno base URL + model (music). Lets the operator set the
+            EXACT model your Suno aggregator expects for the advertised "V5.5" instead of
+            the hard-coded suno-v4 downgrade — without a redeploy. */}
+        <div className="panel">
+          <div className="panel-title"><span className="ms sm">music_note</span> Suno (музыка)
+            <span className={"pill " + (sunoSrc === "db" ? "ok" : "warn")}>{sunoSrc === "db" ? "из админки" : "из .env"}</span>
+          </div>
+          <p className="cfg-hint" style={{ marginTop: 0 }}>Base URL (по умолчанию <code className="code-key">https://api.suno.ai/v1</code>) и точный id модели, который ждёт твой Suno-агрегатор для рекламируемой версии (напр. <code className="code-key">chirp-v4-5</code>). Ключ Suno задаётся выше в списке провайдеров.</p>
+          <div className="form-row" style={{ marginBottom: "var(--sp-2)", gap: "var(--sp-2)" }}>
+            <input className="mono" style={{ flex: 1 }} placeholder="https://api.suno.ai/v1" value={sunoBase} onChange={(e) => setSunoBase(e.target.value)} />
+            <input className="mono" style={{ flex: 1 }} placeholder="модель, напр. chirp-v4-5" value={sunoModel} onChange={(e) => setSunoModel(e.target.value)} />
+          </div>
+          <div className="form-row" style={{ marginBottom: 0, gap: "var(--sp-2)" }}>
+            <button className="btn" disabled={busy === "__suno"} onClick={saveSunoConfig}><span className="ms sm">save</span> {busy === "__suno" ? "…" : "Сохранить"}</button>
+            <button className="btn ghost" disabled={busy === "__suno"} title="Сбросить к значениям из .env" onClick={() => { setSunoBase(""); setSunoModel(""); setBusy("__suno"); (async () => { try { await api.setSunoConfig("", ""); await load(); } catch (e) { setMsg(String(e)); } finally { setBusy(""); } })(); }}><span className="ms sm">restart_alt</span> Сброс</button>
           </div>
         </div>
 

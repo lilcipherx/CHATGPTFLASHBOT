@@ -711,6 +711,41 @@ async def set_openai_base_url(
     return {"ok": True, "value": value}
 
 
+# ---------- Suno base URL + model (music) — FIX: AUDIT13-M2 ----------
+@router.get("/suno-config")
+async def get_suno_config(
+    admin: AdminUser = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await provider_keys.get_suno_config(session)
+
+
+class SunoConfigReq(BaseModel):
+    base_url: str = Field("", max_length=2048)   # blank reverts to the .env default
+    model: str = Field("", max_length=128)       # blank reverts to the .env default
+
+
+@router.put("/suno-config")
+async def set_suno_config(
+    req: SunoConfigReq, request: Request,
+    admin: AdminUser = Depends(require_role("superadmin")),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    url = req.base_url.strip()
+    if url:
+        # Same SSRF defence as the OpenAI base-url setter: the music adapter makes
+        # server-side calls to this URL carrying the Suno API key, so validate the
+        # resolved host against the allowlist / reject non-public addresses.
+        from api.admin.ai_routing import _validate_base_url_async
+
+        url = await _validate_base_url_async(url)
+    value = await provider_keys.set_suno_config(session, url, req.model)
+    await audit(session, admin_id=admin.id, action="provider.suno_config.set",
+                target_type="provider_key", target_id="suno",
+                after=value, ip=_ip(request))
+    return {"ok": True, **value}
+
+
 # ---------- Moderation stop-words ----------
 @router.get("/moderation-words")
 async def list_moderation_words(

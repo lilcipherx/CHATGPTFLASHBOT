@@ -782,6 +782,11 @@ export const api = {
   openaiBaseUrl: () => req<{ value: string; source: "db" | "env" }>("/provider-base-url"),
   setOpenaiBaseUrl: (url: string) =>
     req<{ ok: boolean; value: string }>("/provider-base-url", { method: "PUT", body: JSON.stringify({ url }) }),
+  // FIX: AUDIT13-M2 - Suno base URL + model, editable from the panel.
+  sunoConfig: () =>
+    req<{ base_url: { value: string; source: "db" | "env" }; model: { value: string; source: "db" | "env" } }>("/suno-config"),
+  setSunoConfig: (base_url: string, model: string) =>
+    req<{ ok: boolean; base_url: string; model: string }>("/suno-config", { method: "PUT", body: JSON.stringify({ base_url, model }) }),
 
   // --- Broadcasts ---
   broadcasts: () => req<BroadcastRow[]>("/broadcasts"),

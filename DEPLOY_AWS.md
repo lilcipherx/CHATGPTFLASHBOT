@@ -163,4 +163,4 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 - **api unhealthy** — не заполнен `.env` (конфиг падает на дефолтных секретах — это by design).
 - **Не хватает RAM / OOM** — возьми `t3.xlarge` или убери `litellm`/`omniroute`/`minio`.
 - **admin 403** — твой IP не в `ADMIN_ALLOW_IP` (Caddy режет `/api/admin` на уровне прокси).
-- **Suno выдаёт старую версию** — задай `SUNO_MODEL=<точный id V5.5 твоего Suno-провайдера>`.
+- **Suno выдаёт старую версию** — задай точный id модели в **админке** (API-ключи → блок «Suno») или через `SUNO_MODEL=<id>` в `.env`. Значение из админки перекрывает `.env`.
