@@ -28,7 +28,7 @@ from bot.keyboards.inline import (
 )
 from bot.states import AvatarSG
 from core.config import settings
-from core.constants import SUBSCRIPTION_PRICES
+from core.constants import PACK_PRICES, SUBSCRIPTION_PRICES
 from core.i18n import Translator, all_labels
 from core.models import User
 from core.payments import PaymentError
@@ -62,20 +62,31 @@ async def _premium_text_prices(session: AsyncSession) -> dict[str, int]:
     in the panel is reflected in the description — not just on the buttons. Base
     (pre-sale) prices: the active sale is already announced by the banner above the
     text, so the overview lists the regular price to avoid a confusing double discount."""
-    def _from(m: dict[int, int]) -> int:
+    # FIX: PREMIUM-4 - fall back to the static default price (constants) when a live price
+    # is missing/None/zero, instead of rendering "0⭐️" in the overview and advertising a
+    # paid subscription/pack as free. The buttons use the same defaults, so text and
+    # buttons stay consistent.
+    def _min_pos(m: dict[int, int]) -> int:
         vals = [v for v in m.values() if v > 0]
         return min(vals) if vals else 0
+
+    def _sub(product: str) -> int:
+        return SUBSCRIPTION_PRICES.get(product, {}).get(1, 0)
+
+    def _pack(pack: str, live: dict[int, int]) -> int:
+        return _min_pos(live) or _min_pos(PACK_PRICES.get(pack, {}))
+
     return {
-        "p_premium": await pricing.subscription_price(
-            session, "premium", 1, apply_sale=False) or 0,
-        "p_premium_x2": await pricing.subscription_price(
-            session, "premium_x2", 1, apply_sale=False) or 0,
-        "p_image_from": _from(await pricing.pack_prices_for(
-            session, "image_pack", apply_sale=False)),
-        "p_video_from": _from(await pricing.pack_prices_for(
-            session, "video_pack", apply_sale=False)),
-        "p_music_from": _from(await pricing.pack_prices_for(
-            session, "music_pack", apply_sale=False)),
+        "p_premium": (await pricing.subscription_price(
+            session, "premium", 1, apply_sale=False)) or _sub("premium"),
+        "p_premium_x2": (await pricing.subscription_price(
+            session, "premium_x2", 1, apply_sale=False)) or _sub("premium_x2"),
+        "p_image_from": _pack(
+            "image_pack", await pricing.pack_prices_for(session, "image_pack", apply_sale=False)),
+        "p_video_from": _pack(
+            "video_pack", await pricing.pack_prices_for(session, "video_pack", apply_sale=False)),
+        "p_music_from": _pack(
+            "music_pack", await pricing.pack_prices_for(session, "music_pack", apply_sale=False)),
     }
 
 

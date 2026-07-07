@@ -41,7 +41,8 @@ async def _intro_markup(
     models = await enabled_search_models(session)
     if not models:
         return None
-    current = await resolve_search_model(session, user)
+    # FIX: SEARCH-6 - reuse the list just fetched instead of re-querying inside resolve.
+    current = await resolve_search_model(session, user, models)
     name = current.title if current else models[0].title
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     b = InlineKeyboardBuilder()
@@ -143,7 +144,7 @@ async def cb_search_model_open(
     models = await enabled_search_models(session)
     if not models:
         return
-    current = await resolve_search_model(session, user)
+    current = await resolve_search_model(session, user, models)  # FIX: SEARCH-6 - reuse list
     items = [(m.key, m.title) for m in models]
     premium_keys = {m.key for m in models if m.premium}
     await callback.message.edit_text(

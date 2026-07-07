@@ -135,6 +135,18 @@ def gate_keyboard(_: Translator, channels: list[str]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _two_col_rows(n_items: int) -> list[int]:
+    """FIX: SEARCH-7 - single source of the 2-per-row grid layout shared by the model,
+    premium-product and search-model pickers: ``n_items`` buttons laid 2 per row (an odd
+    last item gets its own full-width row), then the Close button alone on the final row.
+    Returns the row-size list for ``InlineKeyboardBuilder.adjust(*rows)``."""
+    rows = [2] * (n_items // 2)
+    if n_items % 2:
+        rows.append(1)
+    rows.append(1)  # Close on its own full-width row
+    return rows
+
+
 def model_keyboard(
     _: Translator,
     active_key: str,
@@ -161,12 +173,7 @@ def model_keyboard(
         # FIX: UX - lay the admin DB catalog out 2-per-row (was a single column) so the
         # picker is compact and symmetric; the Close button always sits alone on the last
         # row. `items` is the model list; an odd count leaves the last model on its own row.
-        n = len(items)
-        rows = [2] * (n // 2)
-        if n % 2:
-            rows.append(1)
-        rows.append(1)  # Close on its own full-width row
-        b.adjust(*rows)
+        b.adjust(*_two_col_rows(len(items)))
     return b.as_markup()
 
 
@@ -184,12 +191,7 @@ def search_model_keyboard(
         badge = " 💎" if key in premium_keys else ""
         b.button(text=f"{mark}{name}{badge}", callback_data=f"searchmodel:{key}")
     b.button(text=_("btn.close"), callback_data="close")
-    n = len(models)
-    rows = [2] * (n // 2)
-    if n % 2:
-        rows.append(1)
-    rows.append(1)  # Close on its own full-width row
-    b.adjust(*rows)
+    b.adjust(*_two_col_rows(len(models)))
     return b.as_markup()
 
 
@@ -278,11 +280,7 @@ def premium_products(
         b.button(text=_("premium.btn_music"), callback_data="pack:music_pack")
         n_products += 1
     b.button(text=_("btn.close"), callback_data="close")
-    rows = [2] * (n_products // 2)
-    if n_products % 2:
-        rows.append(1)
-    rows.append(1)  # Close on its own full-width row
-    b.adjust(*rows)
+    b.adjust(*_two_col_rows(n_products))
     return b.as_markup()
 
 

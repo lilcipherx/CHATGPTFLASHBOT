@@ -35,13 +35,18 @@ def _cols(table: str) -> set[str]:
 
 
 def upgrade() -> None:
-    # Idempotent: skip a column already present (fresh create_all or partial run).
-    if "search" not in _cols("ai_models"):
+    # Idempotent: skip a column already present (fresh create_all or partial run). The
+    # ``cols and`` guard matches the repo pattern (0027/0035): _cols returns an empty set
+    # for an absent table, so without it ``"search" not in set()`` would try to ALTER a
+    # nonexistent table and raise ProgrammingError.
+    ai_cols = _cols("ai_models")
+    if ai_cols and "search" not in ai_cols:
         op.add_column(
             "ai_models",
             sa.Column("search", sa.Boolean(), nullable=False, server_default="false"),
         )
-    if "search_model" not in _cols("users"):
+    user_cols = _cols("users")
+    if user_cols and "search_model" not in user_cols:
         op.add_column(
             "users",
             sa.Column("search_model", sa.String(length=50), nullable=True),

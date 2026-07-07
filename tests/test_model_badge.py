@@ -1,9 +1,20 @@
 """Premium models carry a 💎 badge in the picker (ТЗ §3, GRILL_BACKLOG Q8)."""
 from __future__ import annotations
 
-from bot.keyboards.inline import model_keyboard
+from bot.keyboards.inline import _two_col_rows, model_keyboard
 from core.constants import TEXT_MODELS
 from core.i18n import Translator
+
+
+def test_two_col_rows_layout():
+    # even count: pairs + Close alone; odd count: last item alone + Close alone.
+    assert _two_col_rows(4) == [2, 2, 1]
+    assert _two_col_rows(5) == [2, 2, 1, 1]
+    assert _two_col_rows(1) == [1, 1]
+    assert _two_col_rows(0) == [1]
+    # every layout must sum to n_items + 1 (the Close button).
+    for n in range(0, 12):
+        assert sum(_two_col_rows(n)) == n + 1
 
 
 def _texts(kb):

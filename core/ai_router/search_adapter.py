@@ -26,12 +26,16 @@ from core.services.ai_routing import enabled_search_models
 
 
 def _is_perplexity(model: AIModel) -> bool:
+    # FIX: SEARCH-3 - respect an explicit admin backend pin. If account_kind is set, ONLY
+    # the literal "perplexity" kind uses the direct Perplexity key — a model the admin
+    # pinned to openrouter/omniroute must go through the normal account pool even if its
+    # upstream id contains "sonar". Only when NO kind is pinned do we fall back to the
+    # upstream-id heuristic (Perplexity ids are not OpenAI-compatible pool accounts).
+    kind = (model.account_kind or "").lower()
+    if kind:
+        return kind == "perplexity"
     up = (model.upstream_model or "").lower()
-    return (
-        (model.account_kind or "").lower() == "perplexity"
-        or up.startswith("perplexity/")
-        or "sonar" in up
-    )
+    return up.startswith("perplexity/") or "sonar" in up
 
 
 def _perplexity_upstream(model: AIModel) -> str:
@@ -39,17 +43,30 @@ def _perplexity_upstream(model: AIModel) -> str:
     return (model.upstream_model or "sonar").split("/")[-1] or "sonar"
 
 
-async def resolve_search_model(session: AsyncSession, user: User) -> AIModel | None:
+async def resolve_search_model(
+    session: AsyncSession, user: User, models: list[AIModel] | None = None
+) -> AIModel | None:
     """The search model to use for this user: their saved choice if it is still an
-    enabled search model, else the first enabled search model, else None (no search
-    model configured — the caller falls back to Perplexity / the text model)."""
-    models = await enabled_search_models(session)
-    if not models:
+    enabled search model THEY MAY USE, else the first usable one, else None (no usable
+    search model — the caller falls back to Perplexity / the text model).
+
+    FIX: SEARCH-1 - premium (💎) search models are filtered out for non-premium users so
+    the RUN path enforces the same gate as the picker. Without this, a user whose Premium
+    lapsed (their saved key still points at a paid model) — or any free user when the
+    admin's first search model is premium — would keep using a paid model for free.
+
+    FIX: SEARCH-6 - callers that already fetched the catalog pass ``models`` to avoid a
+    second identical ``enabled_search_models`` query per render.
+    """
+    if models is None:
+        models = await enabled_search_models(session)
+    allowed = [m for m in models if user.is_premium or not m.premium]
+    if not allowed:
         return None
-    for m in models:
+    for m in allowed:
         if m.key == user.search_model:
             return m
-    return models[0]
+    return allowed[0]
 
 
 async def run_search(
@@ -62,11 +79,20 @@ async def run_search(
         try:
             if _is_perplexity(model):
                 return await perplexity_search(query, model=_perplexity_upstream(model))
-            return await ai_chat(model.key, query, system=system, locale=locale)
+            res = await ai_chat(model.key, query, system=system, locale=locale)
+            # FIX: SEARCH-2 - ai_chat (registry.chat) NEVER raises ProviderUnavailable; it
+            # returns TextResult(ok=False) when no account/provider can serve. Only return
+            # a SUCCESS here — a failed configured model must fall through to the fallbacks
+            # below (honouring the "always answers" contract), not surface as an error.
+            if res.ok:
+                return res
         except ProviderUnavailable:
             pass  # configured model has no key yet → fall through to the legacy path
     # Legacy fallback: real Perplexity search, else the user's own text model.
     try:
-        return await perplexity_search(query)
+        res = await perplexity_search(query)
+        if res.ok:
+            return res
     except ProviderUnavailable:
-        return await ai_chat(user.selected_model, query, system=system, locale=locale)
+        pass
+    return await ai_chat(user.selected_model, query, system=system, locale=locale)
