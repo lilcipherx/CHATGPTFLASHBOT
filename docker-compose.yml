@@ -58,27 +58,6 @@ services:
       - "20128:20128"   # dev: open the dashboard at http://localhost:20128
     restart: unless-stopped
 
-  # LiteLLM — self-hosted, OpenAI-compatible gateway unifying 100+ LLM providers
-  # behind one endpoint + master key. The bot/api/worker reach it in-network at
-  # http://litellm:4000/v1. Configure providers/models in litellm/config.yaml (keys
-  # via env below), then add its master key as an AIAccount (kind=litellm,
-  # modality=text, base_url=http://litellm:4000/v1) in the admin panel. Equal peer
-  # to OmniRoute — route per-model via each AIModel's backend pin (account_kind).
-  litellm:
-    image: ghcr.io/berriai/litellm:main-stable
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?required}  # FIX: AUDIT-17 - no default weak key
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-    volumes:
-      - ./litellm/config.yaml:/app/config.yaml:ro
-    ports:
-      - "4000:4000"   # dev: LiteLLM proxy + UI at http://localhost:4000
-    restart: always  # FIX: AI-23 - always restart so LLM routing survives daemon reboots (was: unless-stopped)
-
   # One-shot schema migration. Runs `alembic upgrade head` to completion BEFORE any
   # app process starts — bot/api/worker/beat all depend_on it with
   # service_completed_successfully, so no app container can ever serve traffic against
@@ -88,7 +67,7 @@ services:
   migrate:
     build: .
     # Schema first, then seed the AI model catalog so a fresh deploy can chat the
-    # moment an OmniRoute/LiteLLM account is added. The seed self-skips when the
+    # moment an OmniRoute account is added. The seed self-skips when the
     # catalog already has rows, so it never clobbers an admin's later edits.
     command: sh -c "alembic upgrade head && python -m scripts.seed_ai_models"
     env_file: .env

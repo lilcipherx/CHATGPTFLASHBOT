@@ -5,9 +5,9 @@ import { Switch } from "../components/Switch";
 import { Modal } from "../components/Modal";
 
 // Backend kinds: text gateways + media aggregators + direct provider keys.
-const ACCOUNT_KINDS = ["omniroute", "litellm", "openrouter", "openai", "custom", "kie", "muapi", "apimart", "direct"];
+const ACCOUNT_KINDS = ["omniroute", "openrouter", "openai", "custom", "kie", "muapi", "apimart", "direct"];
 const MODALITIES = ["text", "image", "video", "music"];
-const BACKENDS = ["", "omniroute", "litellm", "openrouter", "kie", "muapi", "apimart", "direct"];
+const BACKENDS = ["", "omniroute", "openrouter", "kie", "muapi", "apimart", "direct"];
 const MODALITY_LABEL: Record<string, string> = { text: "Текст", image: "Изображение", video: "Видео", music: "Аудио" };
 
 const EMPTY_ACC = { name: "", kind: "omniroute", base_url: "", api_key: "", modality: "text", tier: 0, priority: 100, weight: 1, spend_limit_usd: 0, enabled: true };
@@ -690,7 +690,6 @@ function ToolsTab({ accounts, models, toast }: { accounts: AIAccount[]; models: 
       </div>
 
       <RouterPanels />
-      <RouterContainers />
     </div>
   );
 }
@@ -763,45 +762,6 @@ function RouterPanels() {
         <span className="ms sm" style={{ verticalAlign: "-3px" }}>info</span>{" "}
         Укажите URL веб-интерфейса каждого роутера (OmniRoute / LiteLLM) — там вы входите своими аккаунтами (Google, ChatGPT…), через которые идут генерации. Пока роутеры не развёрнуты — оставьте URL пустым.
       </p>
-    </div>
-  );
-}
-
-function RouterContainers() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [services, setServices] = useState<string[]>([]);
-  const [busy, setBusy] = useState(""); const [out, setOut] = useState("");
-  useEffect(() => { api.routerList().then((r) => { setEnabled(r.enabled); setServices(r.services); }).catch(() => setEnabled(false)); }, []);
-  async function run(svc: string, fn: () => Promise<{ stdout: string; stderr: string }>, label: string) {
-    setBusy(`${svc}:${label}`); setOut(`$ ${label} ${svc}…`);
-    try { const r = await fn(); setOut(`$ ${label} ${svc}\n${r.stdout}${r.stderr ? `\n[stderr]\n${r.stderr}` : ""}`.trim()); }
-    catch (e) { setOut(String(e)); } finally { setBusy(""); }
-  }
-  if (enabled === null) return null;
-  return (
-    <div className="panel">
-      <div className="panel-title"><span className="ms sm">dns</span> Контейнеры роутеров</div>
-      {!enabled ? (
-        <EmptyState icon="dns" title="Управление контейнерами выключено" desc="Включите ROUTER_MGMT_ENABLED=true и смонтируйте docker-сокет в API-контейнер (только superadmin)." />
-      ) : (
-        <>
-          {services.map((svc) => (
-            <div key={svc} className="form-row" style={{ marginBottom: 8, alignItems: "center", gap: "var(--sp-2)" }}>
-              <span className="pill muted" style={{ minWidth: 90 }}>{svc}</span>
-              <button className="btn ghost sm" disabled={!!busy} onClick={() => run(svc, () => api.routerStatus(svc), "status")}>статус</button>
-              <button className="btn ghost sm" disabled={!!busy} onClick={() => run(svc, () => api.routerAction(svc, "start"), "start")}>старт</button>
-              <button className="btn ghost sm" disabled={!!busy} onClick={() => run(svc, () => api.routerAction(svc, "stop"), "stop")}>стоп</button>
-              <button className="btn ghost sm" disabled={!!busy} onClick={() => confirm(`Перезапустить ${svc}?`) && run(svc, () => api.routerAction(svc, "restart"), "restart")}>рестарт</button>
-              <button className="btn ghost sm" disabled={!!busy} onClick={() => run(svc, () => api.routerLogs(svc, 200), "logs")}>логи</button>
-            </div>
-          ))}
-          {out && <pre className="code-block" style={{ maxHeight: 320, overflow: "auto", whiteSpace: "pre-wrap" }}>{out}</pre>}
-          <p className="cfg-hint" style={{ marginTop: "var(--sp-3)" }}>
-            <span className="ms sm" style={{ verticalAlign: "-3px" }}>info</span>{" "}
-            Статус и логи берутся из docker compose. Структурированные CPU/RAM/GPU/Latency-метрики потребуют экспортёра метрик контейнеров.
-          </p>
-        </>
-      )}
     </div>
   );
 }

@@ -359,12 +359,6 @@ export interface AIAccount {
   created_at?: string | null;
 }
 
-export interface RouterCmd {
-  ok: boolean;
-  code: number;
-  stdout: string;
-  stderr: string;
-}
 
 export interface AIModelRow {
   key: string;
@@ -689,12 +683,6 @@ export const api = {
     req<{ ok: boolean; status_code: number; latency_ms: number; detail: string }>(
       `/ai/accounts/${id}/test`, { method: "POST" }),
   aiExportConfig: () => req<{ version: number; accounts: unknown[]; models: unknown[] }>("/ai/export"),
-  // --- Router containers (ТЗ §2, superadmin) ---
-  routerList: () => req<{ enabled: boolean; services: string[] }>("/routers"),
-  routerStatus: (svc: string) => req<RouterCmd>(`/routers/${encodeURIComponent(svc)}/status`),  // FIX: AUDIT12-L3
-  routerLogs: (svc: string, tail = 200) => req<RouterCmd>(`/routers/${encodeURIComponent(svc)}/logs?tail=${tail}`),  // FIX: AUDIT12-L3
-  routerAction: (svc: string, verb: "start" | "stop" | "restart") =>
-    req<RouterCmd>(`/routers/${encodeURIComponent(svc)}/${encodeURIComponent(verb)}`, { method: "POST" }),  // FIX: AUDIT12-L3
   aiImportConfig: (body: { accounts: unknown[]; models: unknown[] }) =>
     req<{ ok: boolean; models: number; accounts: number }>("/ai/import", {
       method: "POST", body: JSON.stringify(body),

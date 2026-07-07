@@ -23,7 +23,6 @@ from api.admin import (
     maintenance,
     messaging,
     ops,
-    router_containers,
     traffic,
     users,
 )
@@ -51,5 +50,4 @@ admin_router.include_router(channel.router)
 admin_router.include_router(attention.router)
 admin_router.include_router(bots.router)
 admin_router.include_router(maintenance.router)
-admin_router.include_router(router_containers.router)
 admin_router.include_router(cron.router)

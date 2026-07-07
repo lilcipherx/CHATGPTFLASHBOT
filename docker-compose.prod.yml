@@ -60,18 +60,6 @@ services:
       resources:
         limits: { memory: 512m, cpus: "0.5" }
 
-  # FIX: AUDIT-FINAL-12 - LiteLLM inherits `ports: - "4000:4000"` from the base
-  # compose. In prod this exposes the LiteLLM proxy + admin UI publicly — anyone
-  # who reaches the host on port 4000 can hit /v1/* with no auth (or use the UI
-  # to enumerate model configs). Override to close the port: the app reaches
-  # LiteLLM in-network at http://litellm:4000, no public exposure needed.
-  litellm:
-    ports: []
-    restart: always
-    deploy:  # FIX: AUDIT13-L25 - litellm can be memory-heavy; bound it so it can't OOM the host
-      resources:
-        limits: { memory: 1g, cpus: "1.0" }
-
   minio:
     ports: []
     restart: always

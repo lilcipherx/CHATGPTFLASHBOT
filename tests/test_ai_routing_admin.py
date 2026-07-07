@@ -200,10 +200,10 @@ async def test_model_upsert_persists_token_pricing():
 async def test_router_panels_defaults_set_and_sanitize():
     async with SessionFactory() as s:
         admin = await _admin(s, "admin")
-        # defaults when unset: OmniRoute + LiteLLM with empty URLs
+        # defaults when unset: OmniRoute with an empty URL (LiteLLM removed AUDIT13)
         out = await ai_routing.get_router_panels(admin=admin, session=s)
         names = {p["name"] for p in out["panels"]}
-        assert {"OmniRoute", "LiteLLM"} <= names
+        assert {"OmniRoute"} <= names
 
         # save: valid http URL kept, javascript: scheme stripped, no-name dropped
         await ai_routing.set_router_panels(

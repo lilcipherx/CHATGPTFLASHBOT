@@ -442,7 +442,6 @@ async def upsert_model(
 # the routers (e.g. on a VPS) and fills them in.
 _DEFAULT_PANELS = [
     {"id": "omniroute", "name": "OmniRoute", "url": ""},
-    {"id": "litellm", "name": "LiteLLM", "url": ""},
 ]
 
 

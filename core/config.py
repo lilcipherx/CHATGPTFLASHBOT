@@ -100,10 +100,6 @@ class Settings(BaseSettings):
     # of hanging on the SDK's 600s default.
     ai_image_timeout: int = 120
     openrouter_api_key: str = ""  # OpenAI-compatible gateway (text router fallback)
-    # LiteLLM proxy master key (docker-compose `litellm` service). Read here only so
-    # _require_prod_secret can reject the shipped default in prod — the app talks to
-    # LiteLLM via an AIAccount(kind=litellm) whose key is stored (encrypted) in the DB.
-    litellm_master_key: str = ""
     # When True, the OpenRouter key is free-tier ($0 balance): EVERY logical model
     # is routed to one free model and the per-model cost multiplier is forced to 1
     # so users are not over-charged for a "top" model they don't actually receive.
@@ -208,13 +204,6 @@ class Settings(BaseSettings):
     # IPs are still rejected. Add internal hosts here (e.g. "omniroute") to permit
     # them. See api.admin.ai_routing._validate_base_url.
     ai_base_url_allowlist: str = ""
-    # Router-container management (ТЗ §2): lets a SUPERADMIN start/stop/restart and
-    # inspect the self-hosted LiteLLM router container from the admin panel. OFF by
-    # default — it shells out to `docker compose`, so it needs host access + the
-    # docker socket mounted into the API container, and is a conscious opt-in. Only
-    # the fixed core.services.router_containers.ROUTER_SERVICES allowlist is ever
-    # controllable; no arbitrary container/command is run.
-    router_mgmt_enabled: bool = False
 
     # --- Webhook source restrictions ---
     # CORS origins for the Mini App API (comma-separated). "*" only for dev.
@@ -255,15 +244,6 @@ class Settings(BaseSettings):
             )
         if not self.bot_token:
             raise RuntimeError("BOT_TOKEN is required in production.")
-        # FIX: AUDIT-M10 - reject the shipped default LiteLLM master key. The
-        # docker-compose ${LITELLM_MASTER_KEY:?required} only rejects an EMPTY value,
-        # so a copied .env keeping the example default would expose the LiteLLM proxy's
-        # admin key. Empty is allowed (LiteLLM optional); the known default is not.
-        if self.litellm_master_key == "sk-litellm-change-me":
-            raise RuntimeError(
-                "LITELLM_MASTER_KEY is still the default 'sk-litellm-change-me'. "
-                "Set a strong random key before running in production."
-            )
         # Object storage: when S3/MinIO is in use, refuse the public-default
         # 'minioadmin' creds — they double as the MinIO root account, so leaving
         # them gives anyone on the docker network full access to user uploads.

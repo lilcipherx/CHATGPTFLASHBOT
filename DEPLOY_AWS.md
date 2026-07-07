@@ -14,8 +14,8 @@
 
 | Вариант | Инстанс | RAM | Что запускать |
 |---|---|---|---|
-| **Полный стек** | `t3.xlarge` | 16 GB | всё: postgres, redis, pgbouncer, omniroute, litellm, minio, bot, api, worker, beat, caddy, backup |
-| **Экономный** | `t3.large` | 8 GB | без `litellm`/`omniroute`/`minio` (если чат идёшь через прямые ключи OpenAI/OpenRouter и без S3 на 1 реплике) |
+| **Полный стек** | `t3.large` | 8 GB | всё: postgres, redis, pgbouncer, omniroute, minio, bot, api, worker, beat, caddy, backup |
+| **Экономный** | `t3.medium` | 4 GB | без `omniroute`/`minio` (если чат идёшь через прямые ключи OpenAI/OpenRouter и без S3 на 1 реплике) |
 
 - ОС: **Ubuntu 22.04 LTS** (x86_64), диск **30+ GB gp3**.
 - Регион — ближе к аудитории (для РФ обычно `eu-central-1` / `eu-north-1`).
@@ -142,7 +142,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f api bot 
 2. **Telegram webhook** регистрируется сам при старте бота на
    `https://superaibot.duckdns.org/webhook/telegram`. Проверь логи бота.
 3. **Вебхуки платёжек** в кабинетах провайдеров → `https://superaibot.duckdns.org/webhook/{yookassa|stripe|crypto|tribute}` (см. `DEPLOYMENT.md` §6).
-4. **AI-чат** через OmniRoute/LiteLLM — `DEPLOYMENT.md` §6.5.
+4. **AI-чат** через OmniRoute — `DEPLOYMENT.md` §6.5.
 5. Зайди в админку `https://superaibot.duckdns.org/admin/`, проверь Dashboard/Health.
 
 ---
@@ -161,6 +161,6 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ## Частые грабли
 - **502/нет TLS** — DNS ещё не указывает на Elastic IP, или закрыты 80/443 в Security Group.
 - **api unhealthy** — не заполнен `.env` (конфиг падает на дефолтных секретах — это by design).
-- **Не хватает RAM / OOM** — возьми `t3.xlarge` или убери `litellm`/`omniroute`/`minio`.
+- **Не хватает RAM / OOM** — возьми инстанс побольше или убери `omniroute`/`minio`.
 - **admin 403** — твой IP не в `ADMIN_ALLOW_IP` (Caddy режет `/api/admin` на уровне прокси).
 - **Suno выдаёт старую версию** — задай точный id модели в **админке** (API-ключи → блок «Suno») или через `SUNO_MODEL=<id>` в `.env`. Значение из админки перекрывает `.env`.
