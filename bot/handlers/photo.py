@@ -440,7 +440,15 @@ async def _run_photo(
         # caller stashed image_refs in cfg (e.g. via a future upload state), pass them
         # through unchanged so providers that support img2img (OpenAI, Google, BFL)
         # can use them.
-        images = await generate_image(spec.key, prompt, cfg)
+        # FIX: OPENROUTER-MEDIA - route through admin-configured image accounts
+        # (OpenRouter / Kie / MuAPI…) first, falling back to the direct env adapter.
+        # This makes the bot's /photo generation admin-routable exactly like the Mini
+        # App effects; behaviour is unchanged when no image account is configured.
+        from core.services.media_dispatch import generate_image_routed_managed
+        images = await generate_image_routed_managed(
+            model_key=spec.key, prompt=prompt, cfg=cfg,
+            direct_fn=lambda: generate_image(spec.key, prompt, cfg),
+        )
     except ProviderUnavailable:
         await _refund(session, user, budget, cost, credits_charged=qcredits,
                       was_premium=qwas_premium)  # FIX: B9

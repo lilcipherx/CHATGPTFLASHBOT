@@ -6,6 +6,7 @@ from core.ai_router.gateways import (
     ApimartGateway,
     KieGateway,
     MuapiGateway,
+    OpenRouterMediaGateway,
     _first_url,
     build_gateway,
 )
@@ -18,9 +19,11 @@ def test_build_gateway_registry():
     assert isinstance(build_gateway("kie", "k"), KieGateway)
     assert isinstance(build_gateway("muapi", "k"), MuapiGateway)
     assert isinstance(build_gateway("apimart", "k"), ApimartGateway)
-    # text gateways / unknown kinds are not media gateways
+    # OpenRouter is also a media gateway (image/video) — media_dispatch only builds it
+    # for media-modality accounts, so a text openrouter account is unaffected.
+    assert isinstance(build_gateway("openrouter", "k"), OpenRouterMediaGateway)
+    # omniroute / unknown kinds are text-only, not media gateways
     assert build_gateway("omniroute", "k") is None
-    assert build_gateway("openrouter", "k") is None
 
 
 def test_gateway_defaults_and_availability():

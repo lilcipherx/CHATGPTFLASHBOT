@@ -290,16 +290,143 @@ class ApimartGateway(MediaGateway):
         raise ProviderUnavailable(f"{self.kind}: async media endpoint unconfirmed")
 
 
+class OpenRouterMediaGateway(MediaGateway):
+    """OpenRouter as a media gateway — one key for image AND video generation.
+
+    Image: synchronous ``POST /api/v1/images`` {model, prompt} → data[].b64_json
+    (base64). We decode it to bytes and hand back ImageResult(data=...), which the
+    image workers upload to our storage exactly like any other result.
+
+    Video: async ``POST /api/v1/videos`` {model, prompt, ...} → {id, polling_url,
+    status}; poll ``GET /api/v1/videos/{id}`` → status + unsigned_urls. The
+    unsigned_urls need our Bearer token to download, so on completion we fetch the
+    content WITH auth and re-host it to our storage, returning a public result_url
+    (the video worker's plain rehost_remote can't authenticate).
+
+    NB: OpenRouter has NO music/song generation (only TTS), so this gateway is only
+    used for image/video accounts — never music. Bind an AIAccount kind='openrouter'
+    with modality='image' or 'video' in the admin panel to route through it.
+    """
+
+    kind = "openrouter"
+    default_base_url = "https://openrouter.ai/api/v1"
+
+    async def generate_image(
+        self, model: str, prompt: str, cfg: dict, **_: object
+    ) -> list[ImageResult]:
+        if not self.is_available():
+            raise ProviderUnavailable(self.kind)
+        import base64
+
+        import httpx
+
+        async with httpx.AsyncClient(timeout=180) as http:
+            r = await http.post(
+                f"{self.base_url}/images",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"model": model, "prompt": prompt},
+            )
+            r.raise_for_status()
+            body = r.json()
+            data = (body.get("data") if isinstance(body, dict) else []) or []
+        results: list[ImageResult] = []
+        for it in data:
+            if not isinstance(it, dict):
+                continue
+            b64 = it.get("b64_json")
+            if b64:
+                try:
+                    results.append(ImageResult(data=base64.b64decode(b64)))
+                except (ValueError, TypeError):
+                    continue
+            elif it.get("url"):
+                results.append(ImageResult(url=it["url"]))
+        if not results:
+            raise RuntimeError("openrouter: no image in response")
+        return results
+
+    async def submit(self, model: str, params: dict) -> str:
+        if not self.is_available():
+            raise ProviderUnavailable(self.kind)
+        import httpx
+
+        params = params or {}
+        body: dict = {"model": model, "prompt": params.get("prompt", "")}
+        # Optional video knobs (OpenRouter names): map the bot's cfg keys across.
+        ratio = params.get("aspect_ratio") or params.get("ratio")
+        if ratio:
+            body["aspectRatio"] = ratio
+        if params.get("duration") is not None:
+            body["duration"] = params["duration"]
+        if params.get("resolution"):
+            body["resolution"] = params["resolution"]
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.post(
+                f"{self.base_url}/videos",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=body,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not isinstance(data, dict):
+                data = {}
+        job_id = data.get("id")
+        if not job_id:
+            raise RuntimeError("openrouter: no video job id in submit response")
+        return str(job_id)
+
+    async def poll(self, task_id: str) -> JobStatus:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.get(
+                f"{self.base_url}/videos/{task_id}",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not isinstance(data, dict):
+                data = {}
+        status = (data.get("status") or "").lower()
+        if status == "failed":
+            return JobStatus("failed", error=data.get("error") or "openrouter video failed")
+        if status in ("completed", "complete"):
+            urls = data.get("unsigned_urls") or []
+            content_url = urls[0] if urls else None
+            if not content_url:
+                return JobStatus("failed", error="openrouter: no video url")
+            # unsigned_urls require our Bearer to download → fetch + re-host so the
+            # result is a public URL the video worker/Telegram can actually fetch.
+            try:
+                async with httpx.AsyncClient(timeout=300) as http:
+                    vr = await http.get(
+                        content_url, headers={"Authorization": f"Bearer {self.api_key}"}
+                    )
+                    vr.raise_for_status()
+                    video_bytes = vr.content
+                from core.services import storage
+
+                public = await storage.save_upload(video_bytes, "mp4", prefix="results")
+                return JobStatus("complete", result_url=public)
+            except Exception as exc:  # noqa: BLE001 — surface as a job failure → refund
+                return JobStatus("failed", error=f"openrouter: video fetch failed: {exc}")
+        return JobStatus("processing")
+
+
 # backend kind -> gateway class
 MEDIA_GATEWAYS: dict[str, type[MediaGateway]] = {
     "kie": KieGateway,
     "muapi": MuapiGateway,
     "apimart": ApimartGateway,
+    "openrouter": OpenRouterMediaGateway,
 }
 
 
 def build_gateway(kind: str, api_key: str, base_url: str | None = None) -> MediaGateway | None:
     """Construct the media gateway for an AIAccount kind, or None if the kind is
-    not a media gateway (e.g. 'omniroute'/'openrouter' are text, handled elsewhere)."""
+    not a media gateway. NB: 'openrouter' is BOTH a text account kind (handled by the
+    OpenAI-compatible text path, which never calls this) AND — for image/video
+    modality accounts — a media gateway here. media_dispatch only builds gateways for
+    media-modality accounts, so a text openrouter account never reaches this."""
     cls = MEDIA_GATEWAYS.get(kind)
     return cls(api_key, base_url) if cls else None
