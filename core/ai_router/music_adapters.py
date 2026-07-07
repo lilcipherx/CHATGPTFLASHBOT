@@ -37,7 +37,10 @@ class SunoMusic:
             # actually passed (was: only `prompt`, so Suno used its default model).
             body_payload = {
                 "prompt": params.get("prompt", ""),
-                "model": params.get("model") or "suno-v4",
+                # FIX: AUDIT13-M2 - model comes from settings.suno_model (SUNO_MODEL env)
+                # so it stays in sync with the advertised "V5.5" label instead of the
+                # hard-coded "suno-v4" that silently downgraded every paid generation.
+                "model": params.get("model") or getattr(settings, "suno_model", "") or "suno-v4",
             }
             r = await http.post(
                 f"{self._BASE}/music/generations",

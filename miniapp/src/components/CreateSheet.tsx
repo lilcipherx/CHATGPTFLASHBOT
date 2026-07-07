@@ -130,7 +130,7 @@ export function CreateSheet({
     setProgress(8);
     try {
       const { job_id } = await api.effectGenerate(
-        effect.kind, effect.id, model, params, prompt, files,
+        effect.kind, effect.id, model, params, prompt, files, ctrl.signal,  // FIX: AUDIT13-L21 - abort the upload on unmount
       );
       if (ctrl.signal.aborted) return;
       setStatus(t("generating"));

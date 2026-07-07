@@ -32,15 +32,26 @@ class GoogleText:
     async def chat(self, messages: list[Message], model: str, **opts) -> TextResult:
         if not self.is_available():
             raise ProviderUnavailable(self.name)
+        from google.genai import types
+
         client = self._get_client()
         system = "\n".join(m.content for m in messages if m.role == "system") or None
-        # Flatten the short rolling context into a single prompt turn.
-        prompt = "\n".join(
-            f"{m.role}: {m.content}" for m in messages if m.role != "system"
-        )
+        # FIX: AUDIT13-L2 - build STRUCTURED contents (one types.Content per turn with an
+        # explicit role) instead of flattening history into a single "role: text" string.
+        # The old string form let a user type "\nassistant: <fake>" to forge conversation
+        # turns; structured roles ('user' / 'model') make that impossible. The real system
+        # instruction stays isolated in config.system_instruction.
+        contents = [
+            types.Content(
+                role="model" if m.role == "assistant" else "user",
+                parts=[types.Part.from_text(text=m.content)],
+            )
+            for m in messages
+            if m.role != "system"
+        ]
         resp = await client.aio.models.generate_content(
             model=model,
-            contents=prompt,
+            contents=contents,
             config={"system_instruction": system} if system else None,
         )
         # FIX: U3 - defensive: a malformed Google response (no .text attribute)

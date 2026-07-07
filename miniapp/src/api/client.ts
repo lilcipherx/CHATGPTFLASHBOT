@@ -270,15 +270,16 @@ export const api = {
     params: Record<string, unknown>,
     prompt: string,
     photos: File[],
+    signal?: AbortSignal,  // FIX: AUDIT13-L21 - forward caller abort into the upload
   ) =>
-    uploadEffect(`/effects/${encodeURIComponent(kind)}/${id}/generate`, { model, params: JSON.stringify(params), prompt }, photos),  // FIX: AUDIT12-L3
+    uploadEffect(`/effects/${encodeURIComponent(kind)}/${id}/generate`, { model, params: JSON.stringify(params), prompt }, photos, signal),  // FIX: AUDIT12-L3
 
   // Free model choice (§ variant 3): browse/price/generate a model directly.
   freeModels: (kind: EffectKind) => get<FreeModel[]>(`/models/${encodeURIComponent(kind)}`),
   freeModelCost: (kind: EffectKind, model: string, params: Record<string, unknown>) =>
     postJson<{ cost: number; currency: string }>(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/cost`, { params }),
-  freeModelGenerate: (kind: EffectKind, model: string, params: Record<string, unknown>, prompt: string, photos: File[]) =>
-    uploadEffect(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/generate`, { params: JSON.stringify(params), prompt }, photos),
+  freeModelGenerate: (kind: EffectKind, model: string, params: Record<string, unknown>, prompt: string, photos: File[], signal?: AbortSignal) =>  // FIX: AUDIT13-L21
+    uploadEffect(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/generate`, { params: JSON.stringify(params), prompt }, photos, signal),
 
   job: (jobId: string) => get<JobStatus>(`/jobs/${encodeURIComponent(jobId)}`),  // FIX: AUDIT12-L3
   history: () => get<HistoryItem[]>("/jobs"),

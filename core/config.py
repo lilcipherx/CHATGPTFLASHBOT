@@ -127,6 +127,11 @@ class Settings(BaseSettings):
     # makes the env var actually take effect. SSRF validation happens in the
     # adapter at submit() time via _is_ssrf_url_async on the resolved URL.
     suno_base_url: str = ""
+    # FIX: AUDIT13-M2 - the model id sent to the Suno aggregator. The UI advertises
+    # "Suno V5.5", but the adapter hard-coded "suno-v4", so users paid for V5.5 and got
+    # v4. Set SUNO_MODEL to your aggregator's EXACT V5.5 model string so the sent model
+    # matches the label. Default keeps the historical value; override it in .env.
+    suno_model: str = "suno-v4"
     xai_api_key: str = ""
     replicate_api_key: str = ""  # фото-инструменты §5: face swap / upscale / avatars
 

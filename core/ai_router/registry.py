@@ -203,24 +203,38 @@ async def _chat_with_retry(
             status = _status_code(exc)
             # FIX: AUDIT12-2 - mark the account exhausted/error when session+acc
             # are provided so the router moves on instead of retrying forever.
-            if session is not None and acc is not None:
+            # FIX: AUDIT13-L3 - only mark_exhausted here (once, then break). Do NOT call
+            # mark_error for a transient 5xx inside the retry loop: that fired on every
+            # attempt and inflated total_errors ~3x per sidelined account (the AUDIT-M11
+            # comment's "1 per account" only held for the exhausted branch). A single
+            # mark_error for an exhausted-retries 5xx is issued once, after the loop.
+            if session is not None and acc is not None and status in _EXHAUSTED_STATUSES:
                 try:
                     from core.services import ai_routing as _routing
-                    if status in _EXHAUSTED_STATUSES:
-                        await _routing.mark_exhausted(session, acc, error=_sanitize_exc(exc))
-                    elif status is not None and status >= 500:
-                        await _routing.mark_error(session, acc, _sanitize_exc(exc))
+                    await _routing.mark_exhausted(session, acc, error=_sanitize_exc(exc))
                 except Exception as mark_err:  # noqa: BLE001
                     import structlog
                     structlog.get_logger().warning("ai_router.mark_failed", account=getattr(acc, "id", None), error=str(mark_err))
             # FIX: AUDIT-M11 - stop retrying the SAME account when an immediate retry
             # can't help: it was sidelined (429/401/402/403 → cooldown, so the caller
             # moves to the next account) or the status is permanently non-retryable.
-            # Only a genuine transient 5xx blip retries the same account. This also
-            # keeps total_errors at 1 per sidelined account instead of one per attempt.
+            # Only a genuine transient 5xx blip retries the same account.
             if status in _EXHAUSTED_STATUSES or (status is not None and status not in _RETRY_STATUSES):
                 break
             continue
+
+    # FIX: AUDIT13-L3 - retries exhausted on a transient 5xx: record ONE error for the
+    # account's health counter (not one per attempt). Exhausted statuses were already
+    # marked (and broke) inside the loop, so skip them here.
+    if session is not None and acc is not None and last_exc is not None:
+        _final_status = _status_code(last_exc)
+        if _final_status is not None and _final_status >= 500 and _final_status not in _EXHAUSTED_STATUSES:
+            try:
+                from core.services import ai_routing as _routing
+                await _routing.mark_error(session, acc, _sanitize_exc(last_exc))
+            except Exception as mark_err:  # noqa: BLE001
+                import structlog
+                structlog.get_logger().warning("ai_router.mark_failed", account=getattr(acc, "id", None), error=str(mark_err))
 
     # FIX: AUDIT12-2 - all retries exhausted; re-raise so the caller can decide
     # the user-facing message (rate_limit vs unavailable) instead of swallowing.

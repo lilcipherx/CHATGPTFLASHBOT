@@ -317,8 +317,8 @@ export function Create({
       // model supports one and ignores it otherwise (unknown keys are safe).
       const genParams = negative.trim() ? { ...params, negative: negative.trim() } : params;
       const { job_id } = isModel && freeModel
-        ? await api.freeModelGenerate(mode, freeModel.key, genParams, prompt, files)
-        : await api.effectGenerate(preset!.kind, preset!.id, model, genParams, prompt, files);
+        ? await api.freeModelGenerate(mode, freeModel.key, genParams, prompt, files, ctrl.signal)  // FIX: AUDIT13-L21
+        : await api.effectGenerate(preset!.kind, preset!.id, model, genParams, prompt, files, ctrl.signal);
       if (ctrl.signal.aborted) return;
       setStatus(t("generating")); setProgress((p) => Math.max(p, 20));
       const res = await pollJob(job_id, (s) => {
