@@ -8,7 +8,6 @@ if nothing is available, returns a clear "service unavailable" message.
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import AsyncIterator
 
 from core.ai_router.anthropic_adapter import anthropic_text

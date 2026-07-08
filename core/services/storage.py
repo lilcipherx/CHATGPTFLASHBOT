@@ -192,7 +192,6 @@ def _is_ssrf_url(url: str) -> bool:
     thread pool. Async callers should use ``_is_ssrf_url_async`` so DNS resolution
     runs in a worker thread and doesn't block the event loop (FIX: AUDIT12-M4)."""
     import ipaddress
-    import socket
     from urllib.parse import urlparse
 
     try:

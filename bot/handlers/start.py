@@ -15,7 +15,7 @@ from bot.keyboards.reply import main_menu
 from bot.states import MainSG
 from core.config import settings
 from core.constants import LANGUAGES
-from core.i18n import Translator, all_labels
+from core.i18n import Translator
 from core.models import User
 from core.services.users import set_language
 

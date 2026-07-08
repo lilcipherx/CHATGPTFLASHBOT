@@ -12,7 +12,7 @@ per user and a trivial "open inbox" query (inbound + unhandled).
 """
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Boolean, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base, TimestampMixin
