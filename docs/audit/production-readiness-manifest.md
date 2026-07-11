@@ -115,7 +115,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/services/gallery.py` | pending | — |
 | `core/services/gate.py` | pending | — |
 | `core/services/gateway_keys.py` | pending | — |
-| `core/services/gdpr.py` | pending | — |
+| `core/services/gdpr.py` | fixed | fixed — P6 Art.17 erasure deletes stored objects (70343a3) |
 | `core/services/gen_notify.py` | pending | — |
 | `core/services/gifts.py` | pending | — |
 | `core/services/i18n_overrides.py` | pending | — |
@@ -139,7 +139,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/services/reports.py` | pending | — |
 | `core/services/retention.py` | pending | — |
 | `core/services/service_config.py` | pending | — |
-| `core/services/storage.py` | pending | — |
+| `core/services/storage.py` | fixed | fixed — P6 rehost_remote streaming size cap / OOM guard (2e7bf65) |
 | `core/services/support.py` | pending | — |
 | `core/services/throttle_config.py` | pending | — |
 | `core/services/users.py` | pending | — |
@@ -179,11 +179,11 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `api/admin/users.py` | pending | — |
 | `api/carousel.py` | pending | — |
 | `api/deps.py` | pending | — |
-| `api/images.py` | pending | — |
+| `api/images.py` | fixed | fixed — P6 decompression-bomb dimension ceiling (ed1c87e) |
 | `api/main.py` | pending | — |
 | `api/routers/__init__.py` | pending | — |
-| `api/routers/gallery.py` | pending | — |
-| `api/routers/health.py` | fixed | fixed — A-2 /metrics fail-closed in prod polling (31c17d5) |
+| `api/routers/gallery.py` | fixed | fixed — P6 F1 submit rate-limit + F3 image ownership (9545cde, 1cca61a) |
+| `api/routers/health.py` | fixed | fixed — A-2 /metrics fail-closed (31c17d5) + P6 F2 Authorization: Bearer (2e0f8ff) |
 | `api/routers/miniapp.py` | fixed | fixed `de99766` — U-3 idempotency-key dedup guard |
 | `api/routers/redirect.py` | pending | — |
 | `api/routers/webhooks.py` | pending | — |
@@ -197,7 +197,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `bot/handlers/__init__.py` | pending | — |
 | `bot/handlers/account.py` | pending | — |
 | `bot/handlers/bonus.py` | pending | — |
-| `bot/handlers/chat.py` | pending | — |
+| `bot/handlers/chat.py` | fixed | fixed — P6 voice TTS first_seen import ImportError (403e894) |
 | `bot/handlers/contests.py` | pending | — |
 | `bot/handlers/context.py` | pending | — |
 | `bot/handlers/documents.py` | pending | — |
@@ -229,10 +229,10 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `bot/keyboards/video_config.py` | pending | — |
 | `bot/main.py` | pending | — |
 | `bot/middlewares/__init__.py` | pending | — |
-| `bot/middlewares/ban.py` | pending | — |
+| `bot/middlewares/ban.py` | fixed | fixed — P6 successful_payment carve-out (3d0c0cc) |
 | `bot/middlewares/core.py` | pending | — |
-| `bot/middlewares/gate.py` | pending | — |
-| `bot/middlewares/maintenance.py` | pending | — |
+| `bot/middlewares/gate.py` | fixed | fixed — P6 successful_payment carve-out (3d0c0cc) |
+| `bot/middlewares/maintenance.py` | fixed | fixed — P6 successful_payment carve-out (3d0c0cc) |
 | `bot/middlewares/throttle.py` | pending | — |
 | `bot/states/__init__.py` | pending | — |
 | `bot/states/states.py` | pending | — |
@@ -617,7 +617,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `monitoring/grafana/provisioning/dashboards/dashboards.yml` | pending | — |
 | `monitoring/grafana/provisioning/datasources/datasources.yml` | pending | — |
 | `monitoring/loki-config.yml` | pending | — |
-| `monitoring/prometheus.yml` | pending | — |
+| `monitoring/prometheus.yml` | fixed | fixed — P6 F2 recommend Authorization: Bearer (2e0f8ff) |
 | `monitoring/promtail-config.yml` | pending | — |
 
 ## `docs` (17 files)

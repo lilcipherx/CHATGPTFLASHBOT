@@ -347,3 +347,41 @@ Verified-correct (no change):
 
 Regression: 196 admin/auth/migration tests green after the model change; full
 suite unaffected (869 green baseline stands — only a model column was added).
+
+---
+
+## Phase 6 — Rest of backend / bot / integrations
+
+Six read-only sub-agent findings were verified against current code (zero-trust:
+each reproduced with a failing test before any fix) and remediated TDD red→green.
+Full suite after Phase 6: **882 passed** (`pytest tests/`, 5:35), zero regressions.
+
+| ID | Sev | Area | Status | Commit | Evidence |
+|---|---|---|---|---|---|
+| P6-voice | P2 | bot/handlers/chat.py | ✅ fixed | `403e894` | `first_seen` imported from `core.services.ratelimit` (which has no such name) → `ImportError` **outside** the try on every 🔊 tap → TTS 100% dead. Now imports from `core.redis_client`. Regression test drives handler past the import. |
+| P6-pay-carveout | P2 | bot/middlewares ban+maintenance+gate | ✅ fixed | `3d0c0cc` | A `successful_payment` service message was droppable when the user's state flipped between pre-checkout (Telegram already charged) and delivery → charged-not-credited. Added the same carve-out ThrottlingMiddleware has. 3 middlewares, 3 tests. |
+| P6-rehost-oom | P2 | core/services/storage.py | ✅ fixed | `2e7bf65` | `rehost_remote` buffered the entire provider body (`resp.content`) before the size check → multi-GB response OOMs the worker. Now streams with an incremental cap + early Content-Length reject. Per-hop SSRF re-validation preserved. |
+| F1 gallery submit rate-limit | P2 | api/routers/gallery.py | ✅ fixed | `9545cde` | `/gallery/submit` had no limiter → spammable moderation cost (AI call/prompt) + queue flood. Added `ratelimit.allow` 10/h/user → 429. |
+| F2 metrics token in URL | P3 | api/routers/health.py | ✅ fixed | `2e0f8ff` | `/metrics` token only via `?token=` (leaks to access logs) or non-standard header. Added `Authorization: Bearer` (Prometheus-native); `prometheus.yml` now recommends it. Query-param kept for backward-compat (removing it would silently break the deployed scraper — AUDIT-M7). |
+| F3 gallery image ownership | P3 | api/routers/gallery.py | ✅ fixed | `1cca61a` | `submit` accepted any URL → a user could publish another user's private result / arbitrary image. Now the `image_url` must match one of the submitter's own `GenerationJob.result_url` rows → 403 otherwise. (Endpoint has no frontend/bot caller yet — exact-match ownership is safe.) |
+| pixel-bomb | P3 | api/images.py | ✅ fixed | `ed1c87e` | Uploads decoded pixels without a hard pixel ceiling; Pillow only warns to 2× its default and `.verify()` doesn't reliably trip it. Added a 50 Mpx ceiling checked from `im.size` **before** any decode → `_validate_image` 413, `_normalize_image` None. |
+
+Hypotheses evaluated — **not** fixed, with rationale:
+- **F4 webhook replay (P3) → mitigated, no change.** `api/routers/webhooks.py`
+  verifies the provider signature (YooKassa does an authoritative `Payment.find_one`
+  re-fetch; Stripe verifies the signature) **and** `apply_event` is idempotent via
+  the deterministic ledger keys hardened in Phase 2. A replayed valid event
+  re-applies the same idempotency-keyed transaction → no double credit. Telegram
+  updates are separately deduped by `_claim_update` (SETNX, 1h). Two independent
+  layers already cover replay.
+- **SSRF DNS-rebinding TOCTOU (P2) → residual, documented.** `_is_ssrf_url_async`
+  resolves + validates the host, then `httpx` re-resolves independently at connect
+  time — a narrow DNS-rebinding window. Practical exploitation needs an attacker
+  who both controls a DNS domain **and** sits on a provider/result URL path
+  (`rehost_remote` runs on configured-AI-provider result URLs, not arbitrary user
+  input), and the code already re-validates every redirect hop (shrinking the window
+  to one guarded resolve per hop). A complete fix requires pinning the validated IP
+  through a custom httpx transport while preserving TLS SNI — a substantial,
+  higher-risk network-layer change. **Remediation recommended** (connection-time IP
+  pinning) but deferred from this deploy cycle as a known residual rather than a
+  risky rewrite; tracked for a dedicated hardening PR.
