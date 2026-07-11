@@ -60,9 +60,9 @@ jobs:
         run: |
           pytest --cov=core --cov=api --cov=bot --cov=workers \
                  --cov-report=xml --cov-report=term-missing -q
-      - name: Coverage floor (raise over time)
+      - name: Coverage floor (ratchet — raise over time toward 70 global / 85 critical)
         run: |
-          python -m coverage report --fail-under=50
+          python -m coverage report --fail-under=65
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -104,6 +104,17 @@ jobs:
       - name: Build
         working-directory: ${{ matrix.app }}
         run: npm run build
+      # Playwright e2e (miniapp only — it owns playwright.config.ts + e2e/). The specs
+      # build+preview the SPA and mock the backend via page.route, so no live API is
+      # needed. Deterministic and fast; catches shell/gate/render regressions.
+      - name: Install Playwright browsers (miniapp)
+        if: ${{ matrix.app == 'miniapp' }}
+        working-directory: miniapp
+        run: npx playwright install --with-deps chromium
+      - name: E2E (Playwright, miniapp)
+        if: ${{ matrix.app == 'miniapp' }}
+        working-directory: miniapp
+        run: npm run e2e
 
   security:
     runs-on: ubuntu-latest
