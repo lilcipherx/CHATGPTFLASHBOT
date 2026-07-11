@@ -23,6 +23,15 @@ class BanMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        # FIX: AUDIT-P6 - a successful_payment service message must ALWAYS reach its
+        # handler: Telegram already charged the user (pre_checkout answered ok=True), so
+        # dropping it here — if the user got banned between pre-checkout and delivery —
+        # would take the money without crediting. ThrottlingMiddleware carves this out
+        # identically. No other event type carries this attribute, so a plain getattr is
+        # both sufficient and safe.
+        if getattr(event, "successful_payment", None) is not None:
+            return await handler(event, data)
+
         user = data.get("user")
         if user is None or not user.is_banned:
             return await handler(event, data)
