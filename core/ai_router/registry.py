@@ -328,7 +328,9 @@ async def _chat_via_accounts(
                 prov, messages, model.upstream_model,
                 session=session, acc=acc, locale=locale, model_key=model_key,
             )
-            await routing.mark_success(session, acc, latency_ms=None)
+            await routing.mark_success(
+                session, acc, latency_ms=None, cost_micros=model.cost_micros or 0,
+            )  # FIX: AUDIT-G1 - accrue the routed model's per-request cost
             await session.commit()
             return result
         except Exception as exc:  # noqa: BLE001 - already marked via _chat_with_retry

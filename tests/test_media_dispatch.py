@@ -87,6 +87,33 @@ async def test_resolve_backends_account_before_direct(monkeypatch):
         assert acc.status == "active" and acc.total_requests == 1
 
 
+async def test_submit_first_accrues_model_cost_to_account_spend(monkeypatch):
+    """AUDIT-G1 (P1): a successful media submit must accrue the routed model's
+    cost_micros onto the account's spend_micros, so the admin-set spend cap actually
+    trips. Regression: mark_success was called with no cost anywhere, so spend_micros
+    stayed 0 forever and spend_limit_micros silently never sidelined an account."""
+    monkeypatch.setattr(routing, "gateway_for_account", lambda acc: _FakeGateway())
+    async with SessionFactory() as s:
+        s.add(AIModel(key="kling_ai", title="Kling", upstream_model="kling-v2",
+                      modality="video", account_kind=None, cost_micros=600))
+        s.add(AIAccount(name="kie1", kind="kie", base_url="https://api.kie.ai",
+                        api_key="k", modality="video", tier=0, spend_limit_micros=1000))
+        await s.commit()
+        backends = await resolve_backends(
+            s, modality="video", model_key="kling_ai", params={},
+            direct_provider=_FakeDirect(),
+        )
+        assert backends[0].cost_micros == 600  # cost travels with the backend
+        await submit_first(s, backends)
+        acc = (await s.scalars(select(AIAccount))).one()
+        assert acc.spend_micros == 600
+        # A second request pushes spend to the limit → the cap now actually trips.
+        await submit_first(s, backends)
+        acc = (await s.scalars(select(AIAccount))).one()
+        assert acc.spend_micros == 1200
+        assert routing._over_budget(acc) is True
+
+
 async def test_submit_falls_back_to_direct_on_429(monkeypatch):
     monkeypatch.setattr(routing, "gateway_for_account",
                         lambda acc: _FakeGateway(submit_fail=True))
