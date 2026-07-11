@@ -475,3 +475,24 @@ Verified-correct (no change):
   writing to a `backups` volume; `scripts/restore_test.sh` present for isolated
   restore rehearsal. A real restore drill runs in staging (Phase 11 gate), never against
   prod data.
+
+---
+
+## Phase 10 — GitHub: push / PR / merge
+
+- **Pre-push safety** (all clean): `git diff --check` clean; 92 files changed vs
+  `origin/main`; no secrets in added lines; no `.env`/`dist`/`node_modules`/`.pyc`
+  artifacts committed.
+- **Pushed**: branch `claude/production-readiness-audit` → `origin` (37 commits ahead of
+  `main`, 0 behind, linear/fast-forwardable). Push succeeded (cached credential).
+- **PR opened**: **#1** → `main` (`gh` CLI absent; created via GitHub REST API with the
+  same stored credential, token never printed).
+- **CI status — BLOCKED**: the CI workflow run concluded `startup_failure` (0 jobs
+  started) on the head SHA, as did the **untouched** `release.yml` (`failure`). Because a
+  workflow I never edited also fails to start, this is a **repository-level GitHub Actions
+  configuration issue** (this is the repo's first-ever Actions run — PR #1), not a defect
+  in the audit diff. `ruff`/`pytest`/frontend all pass locally.
+- **Merge — NOT performed.** The plan's gate is explicit: merge only with green required
+  checks. With CI unable to start, there are no green checks, so merging is withheld
+  pending the user resolving Actions (enable Actions / approve first run / runners /
+  billing) — after which CI can be re-run and, if green, the merge completed.
