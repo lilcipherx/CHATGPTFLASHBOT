@@ -10,9 +10,11 @@ from datetime import UTC, datetime
 from arq import cron
 
 from core.db import SessionFactory
-from core.models.channel_post import (
-    ChannelPost,  # FIX: AUDIT13-H1 - module-scope import so sweep_stuck_channel_posts (a separate function) can reference it; previously only imported locally inside dispatch_channel_posts, so the sweep cron raised NameError on every tick and never recovered SIGKILL-stuck posts.
-)
+
+# FIX: AUDIT13-H1 - module-scope import so sweep_stuck_channel_posts (a separate function)
+# can reference it; previously only imported locally inside dispatch_channel_posts, so the
+# sweep cron raised NameError on every tick and never recovered SIGKILL-stuck posts.
+from core.models.channel_post import ChannelPost
 from core.services import channel_posts
 
 

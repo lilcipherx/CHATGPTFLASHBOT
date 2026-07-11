@@ -45,7 +45,8 @@ async def _read_db() -> tuple[int, int]:
                                 window = val
                     except (TypeError, ValueError) as exc:
                         import structlog
-                        structlog.get_logger().warning('core.services.throttle_config._read_db_failed', error=str(exc))
+                        structlog.get_logger().warning(
+                            'core.services.throttle_config._read_db_failed', error=str(exc))
                         # FIX: AUDIT12-L1 - was silent except: pass
     except Exception:  # noqa: BLE001 — never let a config read break throttling
         return _defaults()

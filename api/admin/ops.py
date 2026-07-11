@@ -407,7 +407,11 @@ async def refund_payment(
     if tx.status not in ("paid", "refund_pending"):
         raise HTTPException(status_code=400, detail="not refundable")
 
-    before = {"status": tx.status, "amount": tx.amount, "currency": tx.currency, "gateway": tx.gateway, "gateway_tx_id": tx.gateway_tx_id}  # FIX: AUDIT-102
+    # FIX: AUDIT-102
+    before = {
+        "status": tx.status, "amount": tx.amount, "currency": tx.currency,
+        "gateway": tx.gateway, "gateway_tx_id": tx.gateway_tx_id,
+    }
     # Phase 1 — revoke the entitlement exactly once (only when coming from 'paid';
     # a retry is already in refund_pending with the entitlement gone). NOT committed
     # here: the row lock is deliberately held through Phase 2 below.
@@ -800,7 +804,8 @@ async def list_gates(
 @router.put("/gates")
 async def upsert_gate(
     req: GateRequest, request: Request,
-    admin: AdminUser = Depends(require_role("superadmin")),  # FIX: SUPERADMIN-5 - feature gates control who can access which bot features; superadmin-only
+    # FIX: SUPERADMIN-5 - feature gates control who can access which bot features; superadmin-only
+    admin: AdminUser = Depends(require_role("superadmin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     row = await session.get(ChannelGate, req.channel)
@@ -853,7 +858,8 @@ async def check_gate(
 @router.delete("/gates/{channel}")
 async def delete_gate(
     channel: str, request: Request,
-    admin: AdminUser = Depends(require_role("superadmin")),  # FIX: SUPERADMIN-6 - removing a gate re-opens a feature to everyone; superadmin-only
+    # FIX: SUPERADMIN-6 - removing a gate re-opens a feature to everyone; superadmin-only
+    admin: AdminUser = Depends(require_role("superadmin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Remove a gate channel entirely (vs. just deactivating it). Idempotent."""
@@ -1280,7 +1286,8 @@ class PromoCreate(BaseModel):
     reward_amount: int = Field(0, ge=0, le=1_000_000)   # for premium: number of days
     max_uses: int = Field(1, ge=1, le=10_000_000)
     expires_at: str | None = None   # ISO datetime, or None for no expiry
-    new_user_days: int = Field(0, ge=0, le=3650)    # > 0 = only accounts younger than N days may redeem
+    # > 0 = only accounts younger than N days may redeem
+    new_user_days: int = Field(0, ge=0, le=3650)
 
 
 @router.get("/promos")

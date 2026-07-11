@@ -78,7 +78,9 @@ def _rows_to_csv(header: Sequence[str], rows: Iterable[Sequence[object]]) -> str
     return buf.getvalue()
 
 
-def _csv_response(filename: str, body: str, *, extra_headers: dict[str, str] | None = None) -> StreamingResponse:
+def _csv_response(
+    filename: str, body: str, *, extra_headers: dict[str, str] | None = None,
+) -> StreamingResponse:
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     if extra_headers:
         headers.update(extra_headers)
@@ -100,7 +102,8 @@ async def export_users(
 ) -> StreamingResponse:
     """Full users export as CSV. Optional q/premium/banned filters mirror the
     users list endpoint."""
-    stmt = select(User).order_by(User.created_at.desc()).limit(200_000)  # FIX: AUDIT-165 - row cap to prevent OOM
+    # FIX: AUDIT-165 - row cap to prevent OOM
+    stmt = select(User).order_by(User.created_at.desc()).limit(200_000)
     if q:
         like = like_contains(q)
         conds = [User.username.ilike(like, escape="\\"), User.phone.ilike(like, escape="\\")]

@@ -149,7 +149,8 @@ async def set_admin_role(
     # a second superadmin to perform the demotion (the last-superadmin check
     # below already covers the 1-superadmin edge case).
     if target.id == admin.id and req.role != "superadmin":
-        raise HTTPException(status_code=400, detail="cannot demote yourself; ask another superadmin")
+        raise HTTPException(
+            status_code=400, detail="cannot demote yourself; ask another superadmin")
     # FIX: R16 - lock the target row so the last-superadmin check + the role write
     # are atomic. Without this, two concurrent demotions of the last two superadmins
     # could both pass the count check and leave the panel with zero superadmins.

@@ -127,7 +127,8 @@ async def _invalidate() -> None:
         await redis_client.delete(_CACHE_KEY)
     except Exception as exc:  # noqa: BLE001
         import structlog
-        structlog.get_logger().warning('core.services.i18n_overrides._invalidate_failed', error=str(exc))
+        structlog.get_logger().warning(
+            'core.services.i18n_overrides._invalidate_failed', error=str(exc))
         # FIX: AUDIT12-L1 - was silent except: pass
     await load_once()
 

@@ -221,14 +221,17 @@ async def list_accounts(
 class AccountCreate(BaseModel):
     # FIX: AUDIT12-26 - bounded strings + numeric ranges on AI account
     name: str = Field(..., max_length=100)
-    kind: str = Field("omniroute", max_length=50)        # omniroute | openrouter | apimart | kie | direct | custom
+    # omniroute | openrouter | apimart | kie | direct | custom
+    kind: str = Field("omniroute", max_length=50)
     base_url: str = Field(..., max_length=2048)
     api_key: str = Field(..., max_length=512)
     modality: str = Field("text", max_length=20)          # text | image | video | music
     tier: int = Field(0, ge=0, le=10)                   # 0 pool, 1 fallback
     priority: int = Field(100, ge=0, le=1000)
-    weight: int = Field(1, ge=1, le=100)                 # relative load share within a (tier, priority)
-    spend_limit_micros: int = Field(0, ge=0, le=10**15)     # hard spend cap, micro-USD; 0 = unlimited
+    # relative load share within a (tier, priority)
+    weight: int = Field(1, ge=1, le=100)
+    # hard spend cap, micro-USD; 0 = unlimited
+    spend_limit_micros: int = Field(0, ge=0, le=10**15)
     enabled: bool = True
 
 
@@ -259,7 +262,8 @@ class AccountUpdate(BaseModel):
     name: str | None = Field(None, max_length=100)
     kind: str | None = Field(None, max_length=50)
     base_url: str | None = Field(None, max_length=2048)
-    api_key: str | None = Field(None, max_length=512)      # only updates when a non-empty value is sent
+    # only updates when a non-empty value is sent
+    api_key: str | None = Field(None, max_length=512)
     modality: str | None = Field(None, max_length=20)
     tier: int | None = Field(None, ge=0, le=10)
     priority: int | None = Field(None, ge=0, le=1000)
@@ -397,13 +401,17 @@ class ModelUpsert(BaseModel):
     title: str = Field(..., max_length=200)
     upstream_model: str = Field(..., max_length=200)
     modality: str = Field("text", max_length=20)
-    account_kind: str | None = Field(None, max_length=50)   # pin to a backend kind; None = any of modality
+    # pin to a backend kind; None = any of modality
+    account_kind: str | None = Field(None, max_length=50)
     premium: bool = False
     search: bool = False   # offer this model in the internet-search (/s) picker
     cost: int = Field(1, ge=0, le=10_000_000)
-    cost_micros: int = Field(0, ge=0, le=10**15)              # provider cost / себестоимость per request, micro-USD
-    price_in_micros: int = Field(0, ge=0, le=10**15)          # token pricing: micro-USD per 1M input tokens
-    price_out_micros: int = Field(0, ge=0, le=10**15)         # token pricing: micro-USD per 1M output tokens
+    # provider cost / себестоимость per request, micro-USD
+    cost_micros: int = Field(0, ge=0, le=10**15)
+    # token pricing: micro-USD per 1M input tokens
+    price_in_micros: int = Field(0, ge=0, le=10**15)
+    # token pricing: micro-USD per 1M output tokens
+    price_out_micros: int = Field(0, ge=0, le=10**15)
     enabled: bool = True
     sort_order: int = Field(100, ge=0, le=10_000_000)
 
@@ -485,7 +493,8 @@ class RouterPanelsReq(BaseModel):
 @router.put("/router-panels")
 async def set_router_panels(
     req: RouterPanelsReq, request: Request,
-    admin: AdminUser = Depends(require_role("superadmin")),  # FIX: SUPERADMIN-3 - router panel layout drives which AI accounts users see; superadmin-only
+    # FIX: SUPERADMIN-3 - router panel layout drives which AI accounts users see; superadmin-only
+    admin: AdminUser = Depends(require_role("superadmin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     from core.models import Pricing
@@ -498,7 +507,8 @@ async def set_router_panels(
     else:
         row.value = value
     await audit(session, admin_id=admin.id, action="ai.router_panels", target_type="setting",
-    target_id="router_panels", after={"count": len(panels)}, ip=_ip(request), commit=False)  # FIX: A1
+    # FIX: A1
+    target_id="router_panels", after={"count": len(panels)}, ip=_ip(request), commit=False)
     await session.commit()
     return {"panels": panels}
 
@@ -521,7 +531,9 @@ class StrategyReq(BaseModel):
 @router.put("/strategy")
 async def set_routing_strategy(
     req: StrategyReq, request: Request,
-    admin: AdminUser = Depends(require_role("superadmin")),  # FIX: SUPERADMIN-4 - routing strategy changes which provider serves every generation; superadmin-only
+    # FIX: SUPERADMIN-4 - routing strategy changes which provider serves every
+    # generation; superadmin-only
+    admin: AdminUser = Depends(require_role("superadmin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Persist the intra-tier strategy (tier fallback is always primary)."""
@@ -538,7 +550,8 @@ async def set_routing_strategy(
     else:
         row.value = value
     await audit(session, admin_id=admin.id, action="ai.strategy", target_type="setting",
-    target_id="ai_routing", after={"strategy": req.strategy}, ip=_ip(request), commit=False)  # FIX: A1
+    # FIX: A1
+    target_id="ai_routing", after={"strategy": req.strategy}, ip=_ip(request), commit=False)
     await session.commit()
     return {"ok": True, "strategy": req.strategy}
 

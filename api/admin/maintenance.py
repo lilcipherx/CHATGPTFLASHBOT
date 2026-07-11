@@ -274,7 +274,8 @@ async def database_stats(
             out["page"] = await _sqlite_db_stats(session)
         except Exception as exc:  # noqa: BLE001
             import structlog
-            structlog.get_logger().warning('api.admin.maintenance.database_stats_failed', error=str(exc))
+            structlog.get_logger().warning(
+                'api.admin.maintenance.database_stats_failed', error=str(exc))
             # FIX: AUDIT12-L1 - was silent except: pass
     return out
 

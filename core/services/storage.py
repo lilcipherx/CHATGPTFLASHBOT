@@ -80,8 +80,10 @@ async def _ensure_bucket(s3) -> None:
             await s3.create_bucket(Bucket=settings.s3_bucket)
         except ClientError as exc:
             import structlog
-            structlog.get_logger().warning('core.services.storage._ensure_bucket_failed', error=str(exc))
-            # FIX: AUDIT12-L1 - was silent except: pass (# already exists / created concurrently — put_object will surface real errors)
+            structlog.get_logger().warning(
+                'core.services.storage._ensure_bucket_failed', error=str(exc))
+            # FIX: AUDIT12-L1 - was silent except: pass (already exists / created
+            # concurrently — put_object will surface real errors)
 
 
 async def _s3_put(key: str, data: bytes, ext: str) -> str:

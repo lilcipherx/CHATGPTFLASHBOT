@@ -133,7 +133,9 @@ async def cb_vip(callback: CallbackQuery, session: AsyncSession, user: User, _: 
 # FIX: AUDIT13-M22 - GDPR Art. 20 self-service data export. Returns the user's own
 # records as a downloadable JSON document.
 @router.message(Command("export_data"))
-async def cmd_export_data(message: Message, session: AsyncSession, user: User, _: Translator) -> None:
+async def cmd_export_data(
+    message: Message, session: AsyncSession, user: User, _: Translator,
+) -> None:
     import json
 
     from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -161,7 +163,9 @@ async def cmd_cancel(message: Message, state: FSMContext, _: Translator) -> None
 
 # FIX: AUDIT12-21 - GDPR Art. 17 self-service bot command. Two-step confirmation.
 @router.message(Command("delete_account"))
-async def cmd_delete_account(message: Message, session: AsyncSession, user: User, _: Translator) -> None:
+async def cmd_delete_account(
+    message: Message, session: AsyncSession, user: User, _: Translator,
+) -> None:
     args = (message.text or "").split(maxsplit=1)
     confirm_token = args[1].strip().upper() if len(args) > 1 else ""
     if confirm_token != "CONFIRM":

@@ -25,7 +25,11 @@ _FENCE_RE = re.compile(r"```[ \t]*\w*\n?(.*?)```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.DOTALL)
-_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)|(?<!\w)(?<!_)_(?!_)([^_\n]+?)_(?!_)(?!\w)")  # FIX: B3/L3 - word-boundary guards prevent intraword _ italic
+# FIX: B3/L3 - word-boundary guards prevent intraword _ italic
+_ITALIC_RE = re.compile(
+    r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)"
+    r"|(?<!\w)(?<!_)_(?!_)([^_\n]+?)_(?!_)(?!\w)"
+)
 
 
 def to_telegram_html(md: str) -> str:

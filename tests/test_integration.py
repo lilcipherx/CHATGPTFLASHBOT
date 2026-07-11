@@ -288,7 +288,8 @@ async def test_stars_refund_rechecks_status_under_lock(monkeypatch):
 
         ok = await refund_stars(s, 1040, "avatar", charge_id="charge_race")
         assert ok is False
-        assert bot.refunded == [], "issued a second real Telegram refund for an already-refunded charge"
+        assert bot.refunded == [], (
+            "issued a second real Telegram refund for an already-refunded charge")
 
 
 async def test_avatar_worker_refunds_exact_charge(monkeypatch):

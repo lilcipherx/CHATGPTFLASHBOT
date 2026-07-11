@@ -31,7 +31,8 @@ class ThrottlingMiddleware(BaseMiddleware):
         # traffic is throttled, mirroring the previous per-observer registration.
         message = getattr(event, "message", None)
         callback = getattr(event, "callback_query", None)
-        # FIX: AUDIT-51 - also handle inline_query, pre_checkout_query, edited_message, shipping_query, poll_answer
+        # FIX: AUDIT-51 - also handle inline_query, pre_checkout_query, edited_message,
+        # shipping_query, poll_answer
         inline_query = getattr(event, "inline_query", None)
         pre_checkout = getattr(event, "pre_checkout_query", None)
         edited = getattr(event, "edited_message", None)

@@ -16,7 +16,10 @@ async def audit(
     before: dict | None = None,
     after: dict | None = None,
     ip: str | None = None,
-    commit: bool = True,  # FIX: M7 - allow callers to fold the audit insert into their own transaction so the audit row commits atomically with the mutation it records (no crash-window where the mutation landed but the audit didn't, or vice-versa)
+    # FIX: M7 - allow callers to fold the audit insert into their own transaction so the
+    # audit row commits atomically with the mutation it records (no crash-window where the
+    # mutation landed but the audit didn't, or vice-versa)
+    commit: bool = True,
 ) -> None:
     session.add(
         AdminAuditLog(

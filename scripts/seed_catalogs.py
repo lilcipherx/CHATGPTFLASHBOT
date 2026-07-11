@@ -201,7 +201,8 @@ async def main() -> None:
     # DELETES all Kling/effects rows first). Set CONFIRM=1 in the env to skip (automation).
     import os
     if os.environ.get("CONFIRM") != "1":
-        ans = input("This will DELETE and re-seed the Kling/effects catalogs. Type 'yes' to continue: ")
+        ans = input(
+            "This will DELETE and re-seed the Kling/effects catalogs. Type 'yes' to continue: ")
         if ans.strip().lower() != "yes":
             print("aborted")
             return

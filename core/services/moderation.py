@@ -110,7 +110,8 @@ async def set_custom_words(session, words: list) -> list[dict]:
         await redis_client.delete(_WORDS_CACHE)
     except Exception as exc:  # noqa: BLE001
         import structlog
-        structlog.get_logger().warning('core.services.moderation.set_custom_words_failed', error=str(exc))
+        structlog.get_logger().warning(
+            'core.services.moderation.set_custom_words_failed', error=str(exc))
         # FIX: AUDIT12-L1 - was silent except: pass
     return cleaned
 
@@ -127,7 +128,8 @@ async def _cached_custom_words() -> list[dict]:
             return json.loads(raw)
     except Exception as exc:  # noqa: BLE001
         import structlog
-        structlog.get_logger().warning('core.services.moderation._cached_custom_words_failed', error=str(exc))
+        structlog.get_logger().warning(
+            'core.services.moderation._cached_custom_words_failed', error=str(exc))
         # FIX: AUDIT12-L1 - was silent except: pass
     from core.db import SessionFactory
 

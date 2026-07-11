@@ -139,7 +139,8 @@ async def run_broadcast(ctx, broadcast_id: int) -> None:
                             await _send(bot, uid)
                             sent += 1
                         except Exception as exc:
-                            log.warning("broadcast.retry_failed", user_id=uid, error=str(exc))  # FIX: AUDIT-70
+                            # FIX: AUDIT-70
+                            log.warning("broadcast.retry_failed", user_id=uid, error=str(exc))
                             failed += 1
                     elif isinstance(exc, TelegramForbiddenError):
                         failed += 1

@@ -140,7 +140,8 @@ class EffectUpsert(BaseModel):
     is_trending: bool = False
     enabled: bool = True
     sort_order: int = 0
-    price: int = Field(0, ge=0, le=1_000_000)   # per-effect 🪙 price override; 0 = use the model spec's cost
+    # per-effect 🪙 price override; 0 = use the model spec's cost
+    price: int = Field(0, ge=0, le=1_000_000)
 
 
 def _apply(kind: str, row, req: EffectUpsert) -> None:
@@ -206,7 +207,8 @@ async def create_effect(
     if row is None:
         raise HTTPException(status_code=409, detail="could not allocate effect id, retry")
     await audit(session, admin_id=admin.id, action="effect.create", target_type=f"{kind}_effect",
-    target_id=str(row.effect_id), after={"name": req.name_ru}, ip=_ip(request), commit=False)  # FIX: A1
+    # FIX: A1
+    target_id=str(row.effect_id), after={"name": req.name_ru}, ip=_ip(request), commit=False)
     await session.commit()
     return _effect_dict(kind, row)
 
@@ -226,7 +228,8 @@ async def update_effect(
     # /preview endpoint and round-tripped in the payload counts.
     _require_preview_to_enable(row.enabled, row.preview_url, row.thumbnail_url)
     await audit(session, admin_id=admin.id, action="effect.update", target_type=f"{kind}_effect",
-    target_id=str(effect_id), after={"enabled": req.enabled}, ip=_ip(request), commit=False)  # FIX: A1
+    # FIX: A1
+    target_id=str(effect_id), after={"enabled": req.enabled}, ip=_ip(request), commit=False)
     await session.commit()
     return _effect_dict(kind, row)
 
@@ -287,6 +290,7 @@ async def upload_preview(
         fh.write(out_bytes)
     row.preview_url = f"/media/effects/{fname}"
     await audit(session, admin_id=admin.id, action="effect.preview", target_type=f"{kind}_effect",
-    target_id=str(effect_id), after={"preview_url": row.preview_url}, ip=_ip(request), commit=False)  # FIX: A1
+    # FIX: A1
+    target_id=str(effect_id), after={"preview_url": row.preview_url}, ip=_ip(request), commit=False)
     await session.commit()
     return {"ok": True, "preview_url": row.preview_url}

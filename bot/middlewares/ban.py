@@ -42,6 +42,7 @@ class BanMiddleware(BaseMiddleware):
             await event.answer(_("common.banned"))
         elif isinstance(event, CallbackQuery):
             await event.answer(_("common.banned"), show_alert=True)
-        elif isinstance(event, PreCheckoutQuery):  # FIX: B5 - reject Stars payments from banned users
+        # FIX: B5 - reject Stars payments from banned users
+        elif isinstance(event, PreCheckoutQuery):
             await event.answer(ok=False, error_message=_("common.banned"))
         return None

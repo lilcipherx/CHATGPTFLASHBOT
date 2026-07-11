@@ -74,6 +74,7 @@ class ChannelGateMiddleware(BaseMiddleware):
             await event.answer()
             if event.message:
                 await event.message.answer(_("gate.channel"), reply_markup=markup)
-        elif isinstance(event, PreCheckoutQuery):  # FIX: B7 - block payments for non-subscribed users
+        # FIX: B7 - block payments for non-subscribed users
+        elif isinstance(event, PreCheckoutQuery):
             await event.answer(ok=False, error_message=_("gate.channel"))
         return None

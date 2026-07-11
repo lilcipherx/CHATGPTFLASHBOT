@@ -603,7 +603,9 @@ async def cb_translate(
             locale=target,
         )
     except Exception:
-        await refund_text(session, user, await effective_text_cost(session, user.selected_model), credits_charged=qstate.credits_charged, was_premium=qstate.is_premium)
+        await refund_text(
+            session, user, await effective_text_cost(session, user.selected_model),
+            credits_charged=qstate.credits_charged, was_premium=qstate.is_premium)
         await callback.message.answer(_("ai.unavailable"))
         return
     if not result.ok:

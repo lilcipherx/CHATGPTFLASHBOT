@@ -65,7 +65,8 @@ async def on_group_text(
     except Exception as exc:  # noqa: BLE001 — групповой ответ best-effort, не валим апдейт
         # FIX: AUDIT-12 - log + fallback message instead of silent pass
         import structlog
-        structlog.get_logger().warning("groups.answer_failed", chat_id=message.chat.id, error=str(exc))
+        structlog.get_logger().warning(
+            "groups.answer_failed", chat_id=message.chat.id, error=str(exc))
         try:
             await message.answer(_("ai.unavailable"))
         except Exception:

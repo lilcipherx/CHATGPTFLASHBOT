@@ -213,12 +213,16 @@ async def _chat_with_retry(
                     await _routing.mark_exhausted(session, acc, error=_sanitize_exc(exc))
                 except Exception as mark_err:  # noqa: BLE001
                     import structlog
-                    structlog.get_logger().warning("ai_router.mark_failed", account=getattr(acc, "id", None), error=str(mark_err))
+                    structlog.get_logger().warning(
+                        "ai_router.mark_failed",
+                        account=getattr(acc, "id", None), error=str(mark_err))
             # FIX: AUDIT-M11 - stop retrying the SAME account when an immediate retry
             # can't help: it was sidelined (429/401/402/403 → cooldown, so the caller
             # moves to the next account) or the status is permanently non-retryable.
             # Only a genuine transient 5xx blip retries the same account.
-            if status in _EXHAUSTED_STATUSES or (status is not None and status not in _RETRY_STATUSES):
+            if status in _EXHAUSTED_STATUSES or (
+                status is not None and status not in _RETRY_STATUSES
+            ):
                 break
             continue
 
@@ -227,13 +231,15 @@ async def _chat_with_retry(
     # marked (and broke) inside the loop, so skip them here.
     if session is not None and acc is not None and last_exc is not None:
         _final_status = _status_code(last_exc)
-        if _final_status is not None and _final_status >= 500 and _final_status not in _EXHAUSTED_STATUSES:
+        if (_final_status is not None and _final_status >= 500
+                and _final_status not in _EXHAUSTED_STATUSES):
             try:
                 from core.services import ai_routing as _routing
                 await _routing.mark_error(session, acc, _sanitize_exc(last_exc))
             except Exception as mark_err:  # noqa: BLE001
                 import structlog
-                structlog.get_logger().warning("ai_router.mark_failed", account=getattr(acc, "id", None), error=str(mark_err))
+                structlog.get_logger().warning(
+                    "ai_router.mark_failed", account=getattr(acc, "id", None), error=str(mark_err))
 
     # FIX: AUDIT12-2 - all retries exhausted; re-raise so the caller can decide
     # the user-facing message (rate_limit vs unavailable) instead of swallowing.
@@ -256,7 +262,8 @@ async def _chat_legacy(model_key: str, messages: list[Message], locale: str) -> 
 
     try:
         # FIX: AUDIT12-2 - legacy path has no admin account to sideline
-        return await _chat_with_retry(provider, messages, model_id, locale=locale, model_key=model_key)
+        return await _chat_with_retry(
+            provider, messages, model_id, locale=locale, model_key=model_key)
     except Exception as exc:  # noqa: BLE001 — surface a user-friendly message
         # FIX: F26 - use _status_code so google-genai's .status is recognised too.
         status = _status_code(exc)

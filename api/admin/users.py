@@ -270,12 +270,15 @@ async def grant_credits(
     # increment via a stale read-modify-write. No-op on SQLite; real lock on Postgres.
     await session.refresh(u, with_for_update=True)
     if req.pack == "credits":
-        if req.amount < 0 and not await credits.try_consume(session, u, -req.amount, commit=False):  # FIX: AUDIT-4
+        # FIX: AUDIT-4
+        if req.amount < 0 and not await credits.try_consume(session, u, -req.amount, commit=False):
             raise HTTPException(status_code=409, detail="insufficient credits to deduct")
         if req.amount >= 0:
-            await credits.grant(session, u, req.amount, commit=False)  # FIX: M7 - commit with audit below
+            # FIX: M7 - commit with audit below
+            await credits.grant(session, u, req.amount, commit=False)
     elif req.amount >= 0:
-        await packs.refund(session, user_id, req.pack, req.amount, commit=False)  # FIX: M7 - commit with audit below
+        # FIX: M7 - commit with audit below
+        await packs.refund(session, user_id, req.pack, req.amount, commit=False)
     else:
         if not await packs.try_consume(session, user_id, req.pack, -req.amount, commit=False):
             raise HTTPException(status_code=409, detail="insufficient balance to deduct")

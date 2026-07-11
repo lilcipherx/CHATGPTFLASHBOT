@@ -167,7 +167,8 @@ async def process_video_job(ctx, job_id: str) -> None:
                     else:
                         bot = get_bot()
                         buf = await bot.download(image_file_id)
-                        img_url = await storage.save_upload(buf.read(), "jpg", prefix="video-inputs")
+                        img_url = await storage.save_upload(
+                            buf.read(), "jpg", prefix="video-inputs")
                         params["image_url"] = img_url
                 except Exception as exc:  # noqa: BLE001 — best-effort; if upload fails, text2video fallback
                     # FIX: AUDIT-11 - log instead of silent pass
