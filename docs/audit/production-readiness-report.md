@@ -448,3 +448,30 @@ Verified-correct (no change — strong existing posture):
 - **Auth/webhook authenticity**: payment webhooks verify provider signature (YooKassa
   authoritative re-fetch) + source-IP allowlist (fail-closed on public deploy) +
   idempotent `apply_event`; Telegram updates deduped by SETNX (Phase 6 F4).
+
+---
+
+## Phase 9 — Infra / CI / quality gates
+
+| ID | Sev | Area | Status | Commit | Evidence |
+|---|---|---|---|---|---|
+| B-1 whole-tree ruff | P2 | (tree) | ✅ fixed | `9c72123`, `47594c1` | `ruff check .` (a HARD gate in ci.yml) was red with **147** errors (75 E501, 36 E402, 33 I001, 1 E702) — the lint job blocked the whole pipeline (`docker` needs `[lint,test]`). Cleared all: auto-sorted imports, moved `log = get_logger()` below imports in workers, wrapped long lines. `ruff check .` → **All checks passed!** Full suite **886 passed**, zero regressions. |
+| B-5 pytest-asyncio | P3 | pyproject.toml | ✅ fixed | `101e297` | `asyncio_default_fixture_loop_scope` unset → PytestDeprecationWarning every run. Pinned `"function"` (matches current behaviour). |
+| B-3 coverage ratchet | P3 | .github/workflows/ci.yml | ✅ raised | `101e297` | Measured global coverage **68%** (886 tests). Raised the `--fail-under` floor **50 → 65** (small cross-platform margin under 68) so coverage can't regress; documented target 70 global / 85 critical. |
+| CI e2e wiring | — | .github/workflows/ci.yml | ✅ added | `101e297` | The miniapp Playwright suite now runs in CI (install chromium + `npm run e2e`); specs mock the backend via `page.route` → deterministic, no live API. |
+
+Verified-correct (no change):
+- **`beat` = 1**: `docker-compose.prod.yml` keeps the scheduler at a single replica
+  ("only the `worker` service may be scaled") — no duplicate cron fan-out. The
+  cron-claim hardening (Phase 4 G-4, `cron_control.claim()` under `FOR UPDATE`) makes
+  beat safe even past 1 replica as defence in depth.
+- **CI completeness** (`ci.yml`): lint (gate), typecheck (informational), pytest+coverage
+  (gate), migrations (`alembic upgrade head` + `scripts.check_migrations` drift), frontend
+  matrix (vitest + build, now + e2e), security (`pip-audit --strict` + `bandit`), docker
+  build. `release.yml` present.
+- **Migration/health infra**: fresh `alembic upgrade head` clean (Phase 5); Dockerfile
+  `HEALTHCHECK` on `/health/ready`; `/health`, `/health/ready` liveness/readiness split.
+- **Disaster readiness**: `scripts/backup.sh` runs as a resource-limited compose service
+  writing to a `backups` volume; `scripts/restore_test.sh` present for isolated
+  restore rehearsal. A real restore drill runs in staging (Phase 11 gate), never against
+  prod data.

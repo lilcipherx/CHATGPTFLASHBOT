@@ -647,7 +647,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | File | Status | Purpose / evidence |
 |---|---|---|
 | `.github/dependabot.yml` | pending | — |
-| `.github/workflows/ci.yml` | pending | — |
+| `.github/workflows/ci.yml` | fixed | fixed — P9 coverage ratchet 50→65 + miniapp e2e wiring (101e297) |
 | `.github/workflows/release.yml` | pending | — |
 
 ## `(root)` (27 files)
@@ -678,6 +678,6 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `docker-compose.prod.yml` | pending | — |
 | `docker-compose.staging.yml` | pending | — |
 | `docker-compose.yml` | pending | — |
-| `pyproject.toml` | pending | — |
+| `pyproject.toml` | fixed | fixed — P9 B-5 asyncio loop scope; ruff config (101e297) |
 | `requirements-dev.txt` | pending | — |
 | `requirements.txt` | pending | — |
