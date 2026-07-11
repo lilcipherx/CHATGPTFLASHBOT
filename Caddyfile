@@ -48,6 +48,15 @@
         file_server
         try_files {path} /index.html
     }
+    # FIX: AUDIT-P8 - block /metrics at the PUBLIC edge. Prometheus scrapes it INTERNALLY
+    # (api:8000 on the compose network, see monitoring/prometheus.yml), never through
+    # Caddy, so this doesn't affect real scraping — it only stops the internet from
+    # reaching the user/job counters. The app docstring + prometheus.yml always claimed
+    # "Caddy blocks /metrics publicly"; the catch-all reverse_proxy below actually
+    # exposed it (token-gated, but still reachable). This makes the claim true.
+    handle /metrics {
+        respond 403
+    }
     handle /miniapp/* {
         # FIX: FRONTEND - the Mini App is embeddable by TELEGRAM ORIGINS ONLY (Telegram
         # Web loads it in an <iframe>). frame-ancestors is a header-only directive, so it
