@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,11 +61,29 @@ async def _get_or_create(session: AsyncSession, name: str) -> CronJob | None:
 
 async def claim(session: AsyncSession, name: str) -> bool:
     """Return True (and stamp ``last_run_at``) if ``name`` should run now: enabled and
-    its interval has elapsed. Called from the beat tick, once per minute per job. The
-    beat runs as a single replica, so no cross-process race; a lost DB read just skips
-    this tick and the job runs on the next one."""
-    row = await _get_or_create(session, name)
+    its interval has elapsed. Called from the beat tick, once per minute per job.
+
+    FIX: AUDIT-G4 - the claim is done under a row-level ``SELECT ... FOR UPDATE`` lock
+    so it is safe even if ``beat`` is accidentally scaled past one replica
+    (``--scale beat=N``). Without the lock this was a read-check-then-write race: N
+    replicas could all read the same stale ``last_run_at``, all see the interval
+    elapsed, and all stamp+return True → every cron fires N times (double refunds,
+    duplicate broadcasts, etc.). Now concurrent claimers serialise on the row lock:
+    the first stamps ``last_run_at`` and commits; the next reads the fresh timestamp
+    and returns False. (``with_for_update`` is a harmless no-op on SQLite, where the
+    test suite is single-threaded anyway.)"""
+    # Ensure the row exists first (may itself flush/rollback on a concurrent create).
+    if await _get_or_create(session, name) is None:
+        return False
+    # Re-select the row UNDER a write lock so the check-and-stamp below is atomic
+    # across replicas.
+    row = (
+        await session.execute(
+            select(CronJob).where(CronJob.name == name).with_for_update()
+        )
+    ).scalar_one_or_none()
     if row is None or not row.enabled:
+        await session.rollback()  # release the lock immediately; nothing to stamp
         return False
     now = datetime.now(UTC)
     last = row.last_run_at
@@ -72,9 +91,10 @@ async def claim(session: AsyncSession, name: str) -> bool:
         if last.tzinfo is None:
             last = last.replace(tzinfo=UTC)
         if (now - last).total_seconds() < row.interval_seconds:
+            await session.rollback()  # not due yet — free the lock for the next tick
             return False
     row.last_run_at = now
-    await session.commit()
+    await session.commit()  # stamp + release the lock
     return True
 
 
