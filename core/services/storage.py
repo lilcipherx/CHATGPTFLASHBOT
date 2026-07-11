@@ -299,29 +299,48 @@ async def rehost_remote(
         # rebinding window to a single guarded resolve per hop).
         next_url = url
         async with httpx.AsyncClient(timeout=180, follow_redirects=False) as http:
-            resp = None
             for _hop in range(5):
-                resp = await http.get(next_url)
-                if getattr(resp, "is_redirect", False):
-                    loc = resp.headers.get("location")
-                    if not loc:
+                # FIX: AUDIT-P6 - STREAM the body instead of buffering resp.content up
+                # front. A hostile/compromised provider (or a redirect we followed) could
+                # return a multi-GB body; `resp = await http.get(...)` used to read ALL of
+                # it into RAM *before* the `len(data) > max_bytes` check, so the size cap
+                # could not prevent an OOM. Now we (a) reject early on a declared
+                # Content-Length and (b) stop reading the instant the running total passes
+                # the cap, so at most one chunk beyond max_bytes is ever held.
+                async with http.stream("GET", next_url) as resp:
+                    if getattr(resp, "is_redirect", False):
+                        loc = resp.headers.get("location")
+                        if not loc:
+                            return None
+                        next_url = str(resp.url.join(loc))
+                        # Validate the redirect TARGET before the next request touches it.
+                        if not next_url.lower().startswith(("http://", "https://")) or \
+                                await _is_ssrf_url_async(next_url):
+                            return None
+                        continue
+                    resp.raise_for_status()
+                    # Cheap pre-check: a truthful Content-Length lets us bail before
+                    # reading a single byte of an oversize response.
+                    clen = resp.headers.get("content-length")
+                    if clen is not None:
+                        try:
+                            if int(clen) > max_bytes:
+                                return None
+                        except (TypeError, ValueError):
+                            pass
+                    ct = resp.headers.get("content-type")
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in resp.aiter_bytes():
+                        total += len(chunk)
+                        if total > max_bytes:
+                            return None  # over the cap — abort without reading the rest
+                        chunks.append(chunk)
+                    data = b"".join(chunks)
+                    if not data:
                         return None
-                    next_url = str(resp.url.join(loc))
-                    # Validate the redirect TARGET before the next request touches it.
-                    if not next_url.lower().startswith(("http://", "https://")) or \
-                            await _is_ssrf_url_async(next_url):
-                        return None
-                    continue
-                break
+                    return await save_upload(data, _result_ext(url, ct), prefix=prefix)
             else:
                 return None  # too many redirects
-            if resp is None:
-                return None
-            resp.raise_for_status()
-            data = resp.content
-            ct = resp.headers.get("content-type")
-        if not data or len(data) > max_bytes:
-            return None
-        return await save_upload(data, _result_ext(url, ct), prefix=prefix)
     except Exception:  # noqa: BLE001 — re-hosting is best-effort; keep the provider URL
         return None
