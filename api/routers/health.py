@@ -82,12 +82,20 @@ async def providers_health(
 async def metrics(
     token: str = "",
     x_metrics_token: str = Header(default=""),
+    authorization: str = Header(default=""),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Minimal Prometheus exposition — scrape target for Grafana dashboards.
 
-    When METRICS_TOKEN is configured, the scraper must present it (query ?token=
-    or X-Metrics-Token header) so user counts aren't world-readable.
+    When METRICS_TOKEN is configured, the scraper must present it via ANY of:
+      * ``Authorization: Bearer <token>`` header  (preferred — never hits the URL)
+      * ``X-Metrics-Token`` header
+      * ``?token=`` query param                    (legacy; leaks into access logs)
+
+    FIX: AUDIT-P6 - accept the standard Authorization: Bearer header so operators can
+    keep the token OUT of the scrape URL (a query-string token lands in proxy/access
+    logs and browser history). The query param stays accepted for backward compatibility
+    with existing scraper configs; monitoring/prometheus.yml now recommends the header.
 
     FIX: F22 / AUDIT-A2 - the token is REQUIRED on any non-local deploy, not only when
     is_public_deploy is True. is_public_deploy is inferred from PUBLIC_DEPLOY or a
@@ -103,7 +111,10 @@ async def metrics(
             )
         # Local dev/test only: keep the historical permissive behaviour.
     else:
-        provided = token or x_metrics_token
+        bearer = ""
+        if authorization[:7].lower() == "bearer ":
+            bearer = authorization[7:].strip()
+        provided = bearer or x_metrics_token or token
         if not hmac.compare_digest(provided, settings.metrics_token):
             raise HTTPException(status_code=403, detail="forbidden")
     from datetime import UTC, datetime

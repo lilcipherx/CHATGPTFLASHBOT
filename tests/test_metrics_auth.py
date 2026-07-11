@@ -49,3 +49,26 @@ async def test_metrics_permissive_in_local_dev(monkeypatch, _schema):
     async with SessionFactory() as s:
         resp = await metrics(token="", x_metrics_token="", session=s)
         assert resp.status_code == 200  # local dev/test stays permissive
+
+
+async def test_metrics_accepts_bearer_header(monkeypatch, _schema):
+    """Prometheus can authenticate with a standard Authorization: Bearer header so the
+    token never has to sit in the scrape URL (query string → proxy/access logs)."""
+    monkeypatch.setattr(settings, "env", "prod")
+    monkeypatch.setattr(settings, "metrics_token", "secret-tok")
+    async with SessionFactory() as s:
+        resp = await metrics(
+            token="", x_metrics_token="", authorization="Bearer secret-tok", session=s
+        )
+        assert resp.status_code == 200
+
+
+async def test_metrics_rejects_wrong_bearer(monkeypatch, _schema):
+    monkeypatch.setattr(settings, "env", "prod")
+    monkeypatch.setattr(settings, "metrics_token", "secret-tok")
+    async with SessionFactory() as s:
+        with pytest.raises(HTTPException) as ei:
+            await metrics(
+                token="", x_metrics_token="", authorization="Bearer nope", session=s
+            )
+        assert ei.value.status_code == 403
