@@ -5,20 +5,20 @@ Effects/Motion) through its provider adapter and delivers the result to the user
 via the bot. On failure the video credits are returned."""
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+
 # FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
 # the AUDIT-11 pass (was: NameError on any worker error → worker crash).
 import structlog
-log = structlog.get_logger()
-
-
-import asyncio
-from datetime import UTC, datetime
 
 from core.ai_router.video_adapters import provider_for
 from core.db import SessionFactory
 from core.models import GenerationJob
 from core.services.media_dispatch import resolve_backends, submit_or_resume
 from core.services.refunds import refund_job
+
+log = structlog.get_logger()
 
 POLL_INTERVAL = 8       # seconds between polls
 MAX_POLLS = 150         # ~20 min ceiling
@@ -62,8 +62,9 @@ async def _deliver_and_finalise(job_id: str, result_url: str) -> None:
         job = await session.get(GenerationJob, job_id)
         if job is None or job.status == "complete":
             return  # already delivered & finalised
-        from core.services.users import user_locale
         from sqlalchemy import update as _update
+
+        from core.services.users import user_locale
 
         locale = await user_locale(session, job.user_id)
         # A Mini App generation is in-app when it carries a preset_id (curated effect)

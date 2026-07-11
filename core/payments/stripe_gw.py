@@ -24,6 +24,7 @@ class StripeProvider:
         # FIX: AUDIT12-18 - wrap ALL sync stripe.* calls in asyncio.to_thread
         # so they don't block the event loop.
         import asyncio
+
         import stripe
 
         stripe.api_key = settings.stripe_secret
@@ -74,6 +75,7 @@ class StripeProvider:
         if not self.is_available():
             raise PaymentError("stripe not configured")
         import asyncio
+
         import stripe
 
         stripe.api_key = settings.stripe_secret
@@ -105,6 +107,7 @@ class StripeProvider:
         if not self.is_available():
             raise PaymentError("stripe not configured")
         import asyncio
+
         import stripe
 
         stripe.api_key = settings.stripe_secret

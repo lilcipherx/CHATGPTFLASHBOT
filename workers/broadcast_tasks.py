@@ -4,20 +4,19 @@ Segments: {"all": true} | {"tier": "premium"|"free"} | {"language": "ru"}.
 Respects ~30 msg/s by sleeping between sends; records sent/failed on the row."""
 from __future__ import annotations
 
-# FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
-# the AUDIT-11 pass (was: NameError on any worker error → worker crash).
-import structlog
-log = structlog.get_logger()
-
-
 import asyncio
 from datetime import UTC, datetime
 
+# FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
+# the AUDIT-11 pass (was: NameError on any worker error → worker crash).
+import structlog
 from sqlalchemy import or_, select, update
 
 from core.config import settings
 from core.db import SessionFactory
 from core.models import Broadcast, User
+
+log = structlog.get_logger()
 
 RATE_DELAY = 0.05  # ~20 msg/s, safely under Telegram limits
 
@@ -121,9 +120,9 @@ async def run_broadcast(ctx, broadcast_id: int) -> None:
                     # NetworkError-> transient; sleep briefly and retry once.
                     # Forbidden / "bot was blocked by the user" -> permanent; count failed.
                     from aiogram.exceptions import (
-                        TelegramRetryAfter,
-                        TelegramNetworkError,
                         TelegramForbiddenError,
+                        TelegramNetworkError,
+                        TelegramRetryAfter,
                     )
                     if isinstance(exc, TelegramRetryAfter):
                         await asyncio.sleep(exc.retry_after or 1)

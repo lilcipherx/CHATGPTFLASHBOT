@@ -231,8 +231,9 @@ async def on_gift_payment(
     if gift is None:
         # FIX: #4 - duplicate delivery: re-fetch the existing gift by charge_id and
         # re-send its code (was: silently returned, code never delivered).
-        from core.models.gift import Gift
         from sqlalchemy import select
+
+        from core.models.gift import Gift
         existing = await session.scalar(
             select(Gift).where(Gift.gateway_tx_id == sp.telegram_payment_charge_id)
         )

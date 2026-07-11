@@ -9,7 +9,11 @@ from datetime import UTC, datetime, timedelta
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update  # FIX: B8 - update needed for R7 conditional UPDATE in cancel_broadcast
+from sqlalchemy import (  # FIX: B8 - update needed for R7 conditional UPDATE in cancel_broadcast
+    func,
+    select,
+    update,
+)
 from sqlalchemy.exc import IntegrityError  # FIX: F20 - clean 409 on concurrent create_promo
 from sqlalchemy.ext.asyncio import AsyncSession
 

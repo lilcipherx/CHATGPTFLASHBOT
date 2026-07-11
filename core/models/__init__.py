@@ -25,8 +25,8 @@ from core.models.catalog import (
 )
 from core.models.channel_post import ChannelPost
 from core.models.contest import Contest, ContestEntry
-from core.models.cron import CronJob
 from core.models.crm import UserNote, UserTag
+from core.models.cron import CronJob
 from core.models.feedback import Complaint, MessageFeedback
 from core.models.gallery import GalleryItem
 from core.models.gift import Gift

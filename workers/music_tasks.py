@@ -1,20 +1,20 @@
 """Music generation worker — submit → poll → deliver audio, refund on failure."""
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+
 # FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
 # the AUDIT-11 pass (was: NameError on any worker error → worker crash).
 import structlog
-log = structlog.get_logger()
-
-
-import asyncio
-from datetime import UTC, datetime
 
 from core.ai_router.music_adapters import provider_for
 from core.db import SessionFactory
 from core.models import GenerationJob
 from core.services.media_dispatch import resolve_backends, submit_or_resume
 from core.services.refunds import refund_job
+
+log = structlog.get_logger()
 
 POLL_INTERVAL = 8
 MAX_POLLS = 120

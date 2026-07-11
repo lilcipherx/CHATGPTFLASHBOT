@@ -69,6 +69,7 @@ class YooKassaProvider:
             raise PaymentError("yookassa not configured")
         # FIX: AUDIT12-19 - wrap sync YooKassa SDK calls in asyncio.to_thread
         import asyncio
+
         from yookassa import Configuration, Payment
 
         Configuration.account_id = settings.yookassa_shop_id
@@ -114,6 +115,7 @@ class YooKassaProvider:
         if not self.is_available():
             raise PaymentError("yookassa not configured")
         import asyncio
+
         from yookassa import Configuration, Payment
 
         Configuration.account_id = settings.yookassa_shop_id
@@ -146,6 +148,7 @@ class YooKassaProvider:
         if not self.is_available():
             raise PaymentError("yookassa not configured")
         import asyncio
+
         from yookassa import Configuration, Refund
 
         Configuration.account_id = settings.yookassa_shop_id

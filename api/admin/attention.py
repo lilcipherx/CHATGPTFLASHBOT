@@ -7,14 +7,12 @@ try/except returning 0 so a missing/renamed table can never 500 the whole panel.
 """
 from __future__ import annotations
 
-import structlog
 from datetime import UTC, datetime, timedelta
 
+import structlog
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-_log = structlog.get_logger()
 
 from api.admin.deps import require_role
 from core.config import settings
@@ -27,6 +25,8 @@ from core.models import (
     GenerationJob,
     SupportMessage,
 )
+
+_log = structlog.get_logger()
 
 router = APIRouter(prefix="/attention", tags=["admin-attention"])
 

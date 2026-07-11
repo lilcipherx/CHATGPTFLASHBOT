@@ -8,19 +8,18 @@ submit → poll → deliver pipeline (and only refund on genuine failure).
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 # FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
 # the AUDIT-11 pass (was: NameError on any worker error → worker crash).
 import structlog
-log = structlog.get_logger()
-
-
-from datetime import UTC, datetime
-
 from sqlalchemy import select, update
 
 from core.db import SessionFactory
 from core.models import GenerationJob
 from core.services.refunds import refund_stars
+
+log = structlog.get_logger()
 
 
 async def process_avatar_job(ctx, job_id: str) -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 from core.ai_router.base import JobStatus, ProviderUnavailable
 from core.config import settings
 
-
 # FIX: AI-18 - Suno base URL is now configurable via settings.suno_base_url.
 # The previous hardcoded `https://api.suno.ai/v1` is NOT a public endpoint —
 # Suno's public API is at `https://api.suno.ai/v1` only for official partners.

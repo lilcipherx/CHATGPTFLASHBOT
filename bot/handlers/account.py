@@ -135,8 +135,10 @@ async def cb_vip(callback: CallbackQuery, session: AsyncSession, user: User, _: 
 @router.message(Command("export_data"))
 async def cmd_export_data(message: Message, session: AsyncSession, user: User, _: Translator) -> None:
     import json
+
     from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
     from aiogram.types import BufferedInputFile
+
     from core.services.gdpr import export_user_data
 
     data = await export_user_data(session, user.user_id)
@@ -165,8 +167,9 @@ async def cmd_delete_account(message: Message, session: AsyncSession, user: User
     if confirm_token != "CONFIRM":
         await message.answer(_("gdpr.delete_confirm_prompt", cancel_cmd="/cancel"))
         return
+    from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+
     from core.services.gdpr import delete_user_data
-    from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
     user_id = user.user_id
     counts = await delete_user_data(session, user_id)
     await session.commit()

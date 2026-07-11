@@ -10,7 +10,9 @@ from datetime import UTC, datetime
 from arq import cron
 
 from core.db import SessionFactory
-from core.models.channel_post import ChannelPost  # FIX: AUDIT13-H1 - module-scope import so sweep_stuck_channel_posts (a separate function) can reference it; previously only imported locally inside dispatch_channel_posts, so the sweep cron raised NameError on every tick and never recovered SIGKILL-stuck posts.
+from core.models.channel_post import (
+    ChannelPost,  # FIX: AUDIT13-H1 - module-scope import so sweep_stuck_channel_posts (a separate function) can reference it; previously only imported locally inside dispatch_channel_posts, so the sweep cron raised NameError on every tick and never recovered SIGKILL-stuck posts.
+)
 from core.services import channel_posts
 
 
@@ -39,6 +41,7 @@ async def dispatch_channel_posts(ctx) -> None:
             return
         bot = get_bot()
         from sqlalchemy import update as _update
+
         from core.models.channel_post import ChannelPost
         for post in posts:
             # FIX: R8 - atomic claim (pending→sending) BEFORE the slow Telegram send so
@@ -105,6 +108,7 @@ publish_channel_posts = cron(dispatch_channel_posts, minute=set(range(0, 60, 1))
 async def sweep_stuck_channel_posts(ctx) -> None:
     """Beat cron: mark 'sending' channel posts stuck for >1h as 'failed'."""
     from datetime import UTC, datetime, timedelta
+
     from sqlalchemy import update
 
     cutoff = datetime.now(UTC) - timedelta(hours=1)

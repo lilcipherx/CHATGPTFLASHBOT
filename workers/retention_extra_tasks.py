@@ -9,9 +9,11 @@ adds purges for:
 
 Each purge is bounded to 50k rows per run to avoid long-running transactions.
 """
-import structlog
 from datetime import UTC, datetime, timedelta
+
+import structlog
 from sqlalchemy import delete, select
+
 from core.db import SessionFactory
 from core.models import AdminAuditLog, SupportMessage, Transaction
 

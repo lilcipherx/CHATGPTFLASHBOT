@@ -130,7 +130,7 @@ async def _validate_base_url_async(url: str) -> str:
                 asyncio.to_thread(_resolve_host_candidates, host),
                 timeout=5.0,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise HTTPException(
                 status_code=400,
                 detail="base_url host DNS lookup timed out (5s)",

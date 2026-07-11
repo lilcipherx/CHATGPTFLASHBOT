@@ -24,7 +24,7 @@ async def _is_first_purchase(session: AsyncSession, user_id: int) -> bool:
 
 async def _apply_purchase_promos(
     session: AsyncSession, user: User, *, product: str, qty: int | None,
-    tx: "Transaction | None" = None,  # FIX: B2 - carry tx.id so revoke_entitlement can find the exact bonus log
+    tx: Transaction | None = None,  # FIX: B2 - carry tx.id so revoke_entitlement can find the exact bonus log
 ) -> None:
     """Grant configured promo bonuses for a just-recorded paid purchase, folded into
     the caller's transaction (commit=False — the caller commits). Cashback applies to

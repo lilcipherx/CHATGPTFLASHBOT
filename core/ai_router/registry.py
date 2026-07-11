@@ -8,6 +8,7 @@ if nothing is available, returns a clear "service unavailable" message.
 from __future__ import annotations
 
 import asyncio
+import re as _re
 from collections.abc import AsyncIterator
 
 from core.ai_router.anthropic_adapter import anthropic_text
@@ -30,7 +31,6 @@ _EXHAUSTED_STATUSES = {401, 402, 403, 429}
 # AIAccount.last_error. OpenAI AuthenticationError messages contain masked-but-
 # partial keys like "sk-proj-***...***." — this redacts them fully.
 # FIX: AUDIT12-25 - extend regex to catch ALL provider key formats, not just OpenAI.
-import re as _re
 # FIX: SKILL-S1 - the previous regex `sk-[A-Za-z0-9_\-]{6,}` did NOT match the
 # masked-key format "sk-proj-***...***." because `*` is not in the char class,
 # so the regex stopped at "sk-proj-" and left "***...***." visible. The fix:

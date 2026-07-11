@@ -8,7 +8,9 @@ off-session. One active row per (user, gateway): re-saving updates it in place.
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError  # FIX: AUDIT-TEST - was used at save_method but never imported (NameError on the concurrent-insert path)
+from sqlalchemy.exc import (
+    IntegrityError,  # FIX: AUDIT-TEST - was used at save_method but never imported (NameError on the concurrent-insert path)
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import PaymentMethod

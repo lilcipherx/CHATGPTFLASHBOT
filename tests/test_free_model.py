@@ -93,6 +93,7 @@ async def test_free_model_generate_charges_and_creates_job(monkeypatch):
 
 async def test_free_model_generate_insufficient_credits(monkeypatch):
     from fastapi import HTTPException
+
     from api.routers import miniapp
 
     _allow(monkeypatch)
@@ -141,6 +142,7 @@ async def test_free_model_job_appears_in_history(monkeypatch):
 
 async def test_unknown_free_model_404():
     from fastapi import HTTPException
+
     from api.routers import miniapp
 
     async with SessionFactory() as s:
