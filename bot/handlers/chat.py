@@ -625,8 +625,12 @@ async def cb_translate(
 async def cb_voice(
     callback: CallbackQuery, session: AsyncSession, user: User, _: Translator
 ) -> None:
-    # FIX: AUDIT-112 - Redis lock on voice button (15s) to prevent TTS cost abuse
-    from core.services.ratelimit import first_seen
+    # FIX: AUDIT-112 - Redis lock on voice button (15s) to prevent TTS cost abuse.
+    # FIX: AUDIT-P6 - first_seen lives in core.redis_client, NOT core.services.ratelimit
+    # (which only defines allow/peek/incr/reset). The wrong import raised ImportError on
+    # every tap — outside the try below — so the 🔊 button was 100% dead. cb_translate
+    # imports it from the correct module.
+    from core.redis_client import first_seen
     lock_key = f"voice:{callback.message.chat.id}:{callback.message.message_id}"
     try:
         if not await first_seen(lock_key, 15):
