@@ -184,7 +184,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `api/routers/__init__.py` | pending | — |
 | `api/routers/gallery.py` | fixed | fixed — P6 F1 submit rate-limit + F3 image ownership (9545cde, 1cca61a) |
 | `api/routers/health.py` | fixed | fixed — A-2 /metrics fail-closed (31c17d5) + P6 F2 Authorization: Bearer (2e0f8ff) |
-| `api/routers/miniapp.py` | fixed | fixed `de99766` — U-3 idempotency-key dedup guard |
+| `api/routers/miniapp.py` | fixed | fixed — P4 U-3 effect dedup + P7 free_model dedup symmetry (de99766, d3e2b7b) |
 | `api/routers/redirect.py` | pending | — |
 | `api/routers/webhooks.py` | pending | — |
 
@@ -323,10 +323,10 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `miniapp/src/__tests__/effectGrid.test.tsx` | pending | — |
 | `miniapp/src/__tests__/errorBoundary.test.tsx` | pending | — |
 | `miniapp/src/__tests__/i18n.test.ts` | pending | — |
-| `miniapp/src/api/client.ts` | pending | — |
+| `miniapp/src/api/client.ts` | fixed | fixed — P7 U-3 idempotency token + U-7 error taxonomy (d3e2b7b, de099d1) |
 | `miniapp/src/components/BonusReferral.tsx` | pending | — |
 | `miniapp/src/components/Carousel.tsx` | pending | — |
-| `miniapp/src/components/CreateSheet.tsx` | pending | — |
+| `miniapp/src/components/CreateSheet.tsx` | fixed | fixed — P7 U-3 synchronous double-submit guard (d3e2b7b) |
 | `miniapp/src/components/EffectCard.tsx` | pending | — |
 | `miniapp/src/components/EffectGrid.tsx` | pending | — |
 | `miniapp/src/components/ErrorBoundary.tsx` | pending | — |
@@ -343,7 +343,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `miniapp/src/components/create/templates.ts` | pending | — |
 | `miniapp/src/i18n.ts` | pending | — |
 | `miniapp/src/main.tsx` | pending | — |
-| `miniapp/src/pages/Create.tsx` | pending | — |
+| `miniapp/src/pages/Create.tsx` | fixed | fixed — P7 U-3 synchronous double-submit guard (d3e2b7b) |
 | `miniapp/src/pages/History.tsx` | pending | — |
 | `miniapp/src/pages/Home.tsx` | pending | — |
 | `miniapp/src/pages/Profile.tsx` | pending | — |

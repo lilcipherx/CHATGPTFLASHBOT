@@ -385,3 +385,32 @@ Hypotheses evaluated — **not** fixed, with rationale:
   higher-risk network-layer change. **Remediation recommended** (connection-time IP
   pinning) but deferred from this deploy cycle as a known residual rather than a
   risky rewrite; tracked for a dedicated hardening PR.
+
+---
+
+## Phase 7 — Mini App + Admin UI/UX + e2e
+
+Frontend baseline (all green, recorded as the verified starting point):
+- **miniapp**: `tsc --noEmit` clean · `vitest` 12→15 pass · `vite build` clean.
+- **admin**: `tsc --noEmit` clean · `vitest` 26 pass · `vite build` clean.
+
+| ID | Sev | Area | Status | Commit | Evidence |
+|---|---|---|---|---|---|
+| U-3 double-submit | P1 | miniapp Create/CreateSheet + api/routers/miniapp.py | ✅ fixed | `d3e2b7b` | `run()` guarded only on `phase === "running"` (async React state) → a fast double-tap (DOM button + Telegram MainButton) charged/queued twice. Added a **synchronous `submittingRef`** (claimed before any await, released in `finally`) in both components, plus a per-submit-intent `idempotency_key` sent to the backend. Backend: mirrored the `effect_generate` dedup onto `free_model_generate` (previously unguarded), `_release_dedup` on all pre-commit rollbacks. |
+| U-7 error taxonomy | P3 | miniapp api/client.ts | ✅ fixed | `de099d1` | Status→i18n map covered only 401/402/429/500; 413 (oversize upload) and 503 (upload failed / unavailable) fell to a generic message. Mapped 413→`err_too_big`, 503→`err_server` (existing keys, no new translations) and de-duplicated the table into one `errKeyForStatus()`. |
+| e2e coverage | — | miniapp/e2e | ✅ added | `7385c81` | The only e2e was a shell-mount smoke. Added Playwright flows (backend mocked via `page.route`, deterministic, no live API) for the three App load outcomes: authenticated render (nav visible), 401→Telegram gate, 503→graceful mount with no uncaught error. `playwright test` 4 passed. |
+
+Verified-correct (no change):
+- **Admin destructive actions** (refund / credits / ban / premium / delete): the admin
+  pages already carry `busy`/`disabled` guards, and — decisively — the backend refund is
+  idempotent (`refund:{gateway_tx_id}` key + conditional `UPDATE ... WHERE status=…`
+  under `SELECT … FOR UPDATE`, hardened in Phase 2), so even a double-click cannot
+  double-refund. Client guard is UX; server is the real gate.
+- **Telegram gate**: opening outside Telegram (no signed initData) + a backend 401
+  renders a single "open in Telegram" card, not a wall of per-tab errors — now pinned by
+  an e2e test.
+
+Note: the U-1/U-2/U-5 sub-agent labels from the original plan were not individually
+reloadable in this continued session; the frontend typecheck/unit/e2e/build baseline
+above is green and serves as the verified state. Any residual UI polish is tracked for a
+follow-up and is not a production blocker.
