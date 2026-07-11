@@ -296,6 +296,16 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "METRICS_TOKEN is empty — production /metrics endpoint must be auth-protected."
             )
+        # FIX: AUDIT-P1 (P0) - if Stripe is enabled, its webhook signing secret MUST be
+        # set. With an empty STRIPE_WEBHOOK_SECRET the SDK verifies against an empty HMAC
+        # key, so anyone can forge a `paid` checkout.session.completed event and credit
+        # themselves for free. Fail closed at boot rather than ship a forgeable webhook.
+        if self.stripe_secret and not self.stripe_webhook_secret:
+            raise RuntimeError(
+                "STRIPE_SECRET is set but STRIPE_WEBHOOK_SECRET is empty — Stripe "
+                "webhooks would be unverifiable and forgeable. Set STRIPE_WEBHOOK_SECRET "
+                "in production."
+            )
 
     @property
     def admin_ids(self) -> set[int]:

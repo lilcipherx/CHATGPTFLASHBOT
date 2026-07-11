@@ -125,6 +125,7 @@ def test_stripe_valid_signature_paid(monkeypatch):
              "data": {"object": {"payment_status": "paid", "id": "cs_1",
                                   "amount_total": 1500,
                                   "metadata": {"payload": "buy:image_pack"}}}}
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
     monkeypatch.setattr(stripe.Webhook, "construct_event", lambda body, sig, secret: event)
     ev = StripeProvider().verify_webhook({"stripe-signature": "t=1,v1=ok"}, b"{}")
     assert ev is not None
@@ -143,11 +144,32 @@ def test_stripe_forged_signature_raises(monkeypatch):
         StripeProvider().verify_webhook({"stripe-signature": "bad"}, b"{}")
 
 
+def test_stripe_empty_webhook_secret_refuses(monkeypatch):
+    """P-1 (P0): with STRIPE_WEBHOOK_SECRET unset (the ``""`` default), Stripe's
+    ``construct_event`` verifies against an EMPTY HMAC key — which an attacker can
+    reproduce, forging a ``paid`` event to credit themselves for free. Like YooKassa
+    (below), Stripe must fail CLOSED when its verification secret is missing, never
+    trusting an empty-key signature. This test forces ``construct_event`` to 'accept'
+    a forged event and asserts we still refuse because the secret is empty."""
+    monkeypatch.setattr(settings, "stripe_secret", "sk_test_present")
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "")
+    import stripe
+
+    forged = {"type": "checkout.session.completed",
+              "data": {"object": {"payment_status": "paid", "id": "cs_forged",
+                                  "amount_total": 999999,
+                                  "metadata": {"payload": "sub:premium"}}}}
+    monkeypatch.setattr(stripe.Webhook, "construct_event", lambda *a, **k: forged)
+    with pytest.raises(PaymentError):
+        StripeProvider().verify_webhook({"stripe-signature": "t=1,v1=forged"}, b"{}")
+
+
 def test_stripe_unpaid_session_is_none(monkeypatch):
     import stripe
 
     event = {"type": "checkout.session.completed",
              "data": {"object": {"payment_status": "unpaid", "id": "cs_2"}}}
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
     monkeypatch.setattr(stripe.Webhook, "construct_event", lambda *a, **k: event)
     # `completed` can fire before async funds clear — must not activate.
     assert StripeProvider().verify_webhook({"stripe-signature": "x"}, b"{}") is None
@@ -156,6 +178,7 @@ def test_stripe_unpaid_session_is_none(monkeypatch):
 def test_stripe_other_event_is_none(monkeypatch):
     import stripe
 
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
     monkeypatch.setattr(stripe.Webhook, "construct_event",
                         lambda *a, **k: {"type": "payment_intent.created",
                                          "data": {"object": {}}})

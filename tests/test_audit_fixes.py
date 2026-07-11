@@ -162,3 +162,37 @@ def test_config_dev_polling_is_lenient():
     s = Settings(env="dev", bot_mode="polling", admin_jwt_secret="change-me-in-prod")
     assert s.is_public_deploy is False
     s._require_prod_secret()  # must not raise
+
+
+# ---------- AUDIT-P1: Stripe enabled without webhook secret fails closed at boot ----
+def _prod_settings(**over):
+    """A prod, non-public Settings that passes every OTHER fail-closed check, so a
+    single overridden field can be asserted in isolation."""
+    from core.config import Settings
+
+    base = dict(
+        env="prod", bot_mode="polling",
+        admin_jwt_secret="x" * 32, enc_secret="y" * 32, bot_token="123:abc",
+        cors_origins="https://app.example.com",
+        redis_url="redis://localhost:6379/0",
+        database_url="postgresql+asyncpg://u:p@localhost/db",
+    )
+    base.update(over)
+    return Settings(**base)
+
+
+def test_config_stripe_enabled_without_webhook_secret_fails():
+    s = _prod_settings(stripe_secret="sk_live_x", stripe_webhook_secret="")
+    assert s.is_public_deploy is False  # isolate the Stripe check
+    with pytest.raises(RuntimeError, match="STRIPE_WEBHOOK_SECRET"):
+        s._require_prod_secret()
+
+
+def test_config_stripe_enabled_with_webhook_secret_ok():
+    s = _prod_settings(stripe_secret="sk_live_x", stripe_webhook_secret="whsec_x")
+    s._require_prod_secret()  # must not raise
+
+
+def test_config_stripe_disabled_needs_no_webhook_secret():
+    s = _prod_settings(stripe_secret="", stripe_webhook_secret="")
+    s._require_prod_secret()  # Stripe off → no requirement
