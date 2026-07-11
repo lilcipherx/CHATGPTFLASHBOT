@@ -186,6 +186,22 @@ boot error. Open gaps to verify + fix in Phase 3:
 - **A-4 (P3, spec)** Bulk PII/financial CSV export at `admin` rank, not `superadmin`
   (`api/admin/exports.py:98,144`) — policy question, up to 200k unfiltered rows.
 
+### Phase 3 — outcomes
+
+| ID | Sev | Status | Commit / note |
+|---|---|---|---|
+| A-2 `/metrics` open in polling prod | P2 | ✅ fixed | `31c17d5` — fail closed unless dev/test box |
+| A-1 login lockout IP-only | P2 | ✅ fixed | `06961a7` — per-account failure lockout + reset on success |
+| U-4 RoleGuard fail-open default | P3 | ✅ fixed | `88eac6b` — default to lowest privilege |
+| A-1b 2FA not mandatory for support/moderator | P2 | 📋 recommend | Config policy: operators should add `support,moderator` to `MFA_REQUIRED_ROLES` (`core/config.py:191`); the mfa_setup login flow already onboards them gracefully. Not forced (changes behaviour for existing deploys). |
+| A-3 no idempotency key on credit/premium grant | P3 | ⏸ deferred | `api/admin/users.py:247,296` — row lock prevents lost updates; double-click = two intentional grants. Adding client idempotency keys is arguably a product decision. |
+| A-4 CSV export at admin rank | P3 | ⏸ deferred | Policy/owner decision on data-handling for admin-rank staff. |
+
+Auth surface is otherwise mature (verified against live code): RBAC enforced
+server-side on every admin mutation, self-lockout guards, initData constant-time
+HMAC + fail-closed dev bypass, JWT `token_version` revocation, CORS wildcard hard
+prod-fail. Regression: admin/login/refresh suites green.
+
 ---
 
 ## Phase 7 candidates — Mini App / Admin UI + e2e (lane audit; verification pending)

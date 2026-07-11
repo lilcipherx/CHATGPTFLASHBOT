@@ -133,7 +133,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/services/provider_keys.py` | pending | — |
 | `core/services/providers_admin.py` | pending | — |
 | `core/services/quota.py` | pending | — |
-| `core/services/ratelimit.py` | pending | — |
+| `core/services/ratelimit.py` | fixed | fixed — A-1 peek/incr/reset helpers (06961a7) |
 | `core/services/referrals.py` | fixed | fixed — P-3 _grant_once savepoint (642c33e) |
 | `core/services/refunds.py` | fixed | fixed — G-2 refund re-check under lock (0084556) |
 | `core/services/reports.py` | pending | — |
@@ -156,7 +156,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `api/admin/analytics.py` | pending | — |
 | `api/admin/attention.py` | pending | — |
 | `api/admin/audit.py` | pending | — |
-| `api/admin/auth.py` | pending | — |
+| `api/admin/auth.py` | fixed | fixed — A-1 per-account login lockout (06961a7) |
 | `api/admin/banners.py` | pending | — |
 | `api/admin/bots.py` | pending | — |
 | `api/admin/business.py` | pending | — |
@@ -183,7 +183,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `api/main.py` | pending | — |
 | `api/routers/__init__.py` | pending | — |
 | `api/routers/gallery.py` | pending | — |
-| `api/routers/health.py` | pending | — |
+| `api/routers/health.py` | fixed | fixed — A-2 /metrics fail-closed in prod polling (31c17d5) |
 | `api/routers/miniapp.py` | pending | — |
 | `api/routers/redirect.py` | pending | — |
 | `api/routers/webhooks.py` | pending | — |
@@ -365,7 +365,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `admin/index.html` | pending | — |
 | `admin/package-lock.json` | pending | — |
 | `admin/package.json` | pending | — |
-| `admin/src/App.tsx` | pending | — |
+| `admin/src/App.tsx` | fixed | fixed — U-4 RoleGuard fail-closed default (88eac6b) |
 | `admin/src/__tests__/api.test.ts` | pending | — |
 | `admin/src/__tests__/dashboard.test.tsx` | pending | — |
 | `admin/src/__tests__/errorBoundary.test.tsx` | pending | — |
