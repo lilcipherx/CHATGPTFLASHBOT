@@ -213,8 +213,22 @@ async def test_submit_endpoint_rate_limited(monkeypatch):
         assert await gallery.pending_list(s) == []
 
 
-async def test_submit_endpoint_allows_within_limit(monkeypatch):
-    """Under the limit, the endpoint still creates a pending item (guard is not a wall)."""
+async def _owned_job(session, user_id: int, result_url: str):
+    from core.models import GenerationJob
+
+    job = GenerationJob(
+        user_id=user_id, service="photoeffect", model_variant="nano_banana",
+        params={"prompt": "x"}, status="complete", cost_credits=0, pack_type=None,
+        result_url=result_url,
+    )
+    session.add(job)
+    await session.commit()
+    return job
+
+
+async def test_submit_endpoint_allows_own_image(monkeypatch):
+    """Under the limit, submitting an image the user actually generated creates a
+    pending item (guard is not a wall)."""
     from api.routers import gallery as gallery_router
     from core.services import ratelimit
 
@@ -225,7 +239,33 @@ async def test_submit_endpoint_allows_within_limit(monkeypatch):
 
     async with SessionFactory() as s:
         await _user(s, user_id=43)
+        await _owned_job(s, 43, "https://cdn/x.png")
         req = gallery_router.SubmitRequest(image_url="https://cdn/x.png", prompt=None)
         tg = {"id": 43, "username": "u", "language_code": "ru"}
         out = await gallery_router.submit_item(req, tg=tg, session=s)
         assert out["status"] == "pending"
+
+
+async def test_submit_endpoint_rejects_unowned_image(monkeypatch):
+    """A user may not submit an arbitrary URL or another user's generated result."""
+    from fastapi import HTTPException
+
+    from api.routers import gallery as gallery_router
+    from core.services import ratelimit
+
+    async def _ok(_key, _limit, _window):
+        return True
+
+    monkeypatch.setattr(ratelimit, "allow", _ok)
+
+    async with SessionFactory() as s:
+        await _user(s, user_id=44)
+        await _user(s, user_id=45)
+        # This result belongs to user 45, not the submitter (44).
+        await _owned_job(s, 45, "https://cdn/victim.png")
+        req = gallery_router.SubmitRequest(image_url="https://cdn/victim.png", prompt=None)
+        tg = {"id": 44, "username": "u", "language_code": "ru"}
+        with pytest.raises(HTTPException) as exc:
+            await gallery_router.submit_item(req, tg=tg, session=s)
+        assert exc.value.status_code == 403
+        assert await gallery.pending_list(s) == []
