@@ -4,9 +4,46 @@ vi.mock("@twa-dev/sdk", () => ({
   default: { initData: "auth_date=1&hash=x", ready: () => {}, expand: () => {} },
 }));
 
-import { api, pollJob } from "../api/client";
+import { api, newIdempotencyKey, pollJob } from "../api/client";
 
 afterEach(() => vi.restoreAllMocks());
+
+async function readFormField(init: RequestInit | undefined, name: string): Promise<string | null> {
+  const body = init?.body as FormData;
+  const v = body.get(name);
+  return typeof v === "string" ? v : null;
+}
+
+describe("idempotency key (AUDIT-U3)", () => {
+  it("newIdempotencyKey returns distinct non-empty tokens", () => {
+    const a = newIdempotencyKey();
+    const b = newIdempotencyKey();
+    expect(a).toBeTruthy();
+    expect(a).not.toBe(b);
+  });
+
+  it("effectGenerate forwards the idempotency_key as a form field", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ job_id: "j1", cost: 1 }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.effectGenerate("photo", 5, "nano_banana", {}, "", [], undefined, "tok-123");
+    const [, init] = fetchMock.mock.calls[0];
+    expect(await readFormField(init, "idempotency_key")).toBe("tok-123");
+  });
+
+  it("omits idempotency_key when none is supplied (older behaviour)", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ job_id: "j1", cost: 1 }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.effectGenerate("photo", 5, "nano_banana", {}, "", []);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(await readFormField(init, "idempotency_key")).toBeNull();
+  });
+});
 
 describe("api client", () => {
   it("sends X-Init-Data and parses the profile", async () => {

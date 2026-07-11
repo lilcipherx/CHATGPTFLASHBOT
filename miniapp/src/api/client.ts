@@ -45,14 +45,27 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// FIX: AUDIT-U3 - a per-submit-intent idempotency token. The Create flow generates one
+// synchronously per generation and sends it here so the backend (miniapp.effect_generate /
+// free_model_generate) can dedup twin submits (double-tap / retry / replay) within its
+// short TTL window instead of charging + queueing the same job twice.
+export function newIdempotencyKey(): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  } catch { /* fall through */ }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 async function uploadEffect(
   path: string,
   fields: Record<string, string>,
   photos: File[],
   signal?: AbortSignal,  // FIX: AUDIT-3 - accept caller signal
+  idempotencyKey?: string,  // FIX: AUDIT-U3 - per-submit-intent dedup token
 ): Promise<{ job_id: string; cost: number }> {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  if (idempotencyKey) form.append("idempotency_key", idempotencyKey);
   for (const p of photos) form.append("photos", p);
   // FIX: FRONTEND - uploads can legitimately take longer (30 MB photo), so allow 60s.
   const ctrl = new AbortController();
@@ -271,15 +284,16 @@ export const api = {
     prompt: string,
     photos: File[],
     signal?: AbortSignal,  // FIX: AUDIT13-L21 - forward caller abort into the upload
+    idempotencyKey?: string,  // FIX: AUDIT-U3
   ) =>
-    uploadEffect(`/effects/${encodeURIComponent(kind)}/${id}/generate`, { model, params: JSON.stringify(params), prompt }, photos, signal),  // FIX: AUDIT12-L3
+    uploadEffect(`/effects/${encodeURIComponent(kind)}/${id}/generate`, { model, params: JSON.stringify(params), prompt }, photos, signal, idempotencyKey),  // FIX: AUDIT12-L3
 
   // Free model choice (§ variant 3): browse/price/generate a model directly.
   freeModels: (kind: EffectKind) => get<FreeModel[]>(`/models/${encodeURIComponent(kind)}`),
   freeModelCost: (kind: EffectKind, model: string, params: Record<string, unknown>) =>
     postJson<{ cost: number; currency: string }>(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/cost`, { params }),
-  freeModelGenerate: (kind: EffectKind, model: string, params: Record<string, unknown>, prompt: string, photos: File[], signal?: AbortSignal) =>  // FIX: AUDIT13-L21
-    uploadEffect(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/generate`, { params: JSON.stringify(params), prompt }, photos, signal),
+  freeModelGenerate: (kind: EffectKind, model: string, params: Record<string, unknown>, prompt: string, photos: File[], signal?: AbortSignal, idempotencyKey?: string) =>  // FIX: AUDIT13-L21, AUDIT-U3
+    uploadEffect(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/generate`, { params: JSON.stringify(params), prompt }, photos, signal, idempotencyKey),
 
   job: (jobId: string) => get<JobStatus>(`/jobs/${encodeURIComponent(jobId)}`),  // FIX: AUDIT12-L3
   history: () => get<HistoryItem[]>("/jobs"),

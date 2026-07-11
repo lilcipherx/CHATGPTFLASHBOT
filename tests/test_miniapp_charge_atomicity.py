@@ -255,3 +255,41 @@ async def test_repeat_generation_with_different_key_is_allowed(monkeypatch):
 
     async with SessionFactory() as s:
         assert await _job_count(s) == 3              # all three admitted
+
+
+async def test_free_model_generate_double_submit_is_deduped(monkeypatch):
+    """U-3: the free-choice model path (free_model_generate) gets the SAME idempotency
+    guard as effect_generate — a double-tap twin carrying one token is rejected 409 with
+    exactly one job and one charge."""
+    from api.routers import miniapp
+
+    _allow(monkeypatch)
+
+    async def _noop_enqueue(session, job, worker):
+        return None
+
+    monkeypatch.setattr(miniapp, "_enqueue_or_refund", _noop_enqueue)
+
+    async with SessionFactory() as s:
+        s.add(User(user_id=9, language_code="ru", credits=100))
+        await s.commit()
+
+    kwargs = dict(
+        kind="video", model="kling_ai", params="{}", prompt="a dance", photos=[],
+        idempotency_key="ftok-1",
+        tg={"id": 9, "username": "u", "language_code": "ru"},
+    )
+
+    async with SessionFactory() as s:
+        out = await miniapp.free_model_generate(session=s, **kwargs)
+        assert out["status"] == "pending"
+
+    async with SessionFactory() as s:
+        with pytest.raises(HTTPException) as ei:
+            await miniapp.free_model_generate(session=s, **kwargs)
+        assert ei.value.status_code == 409
+
+    async with SessionFactory() as s:
+        assert await _job_count(s) == 1
+        u = await s.get(User, 9)
+        assert u.credits == 100 - out["cost"]        # charged exactly once

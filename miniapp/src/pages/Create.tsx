@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  api, EffectDetail, EffectKind, EffectSummary, FreeModel, mediaUrl, ModelCard, pollJob,
+  api, EffectDetail, EffectKind, EffectSummary, FreeModel, mediaUrl, ModelCard, newIdempotencyKey, pollJob,
 } from "../api/client";
 import { t } from "../i18n";
 import { haptic } from "../theme";
@@ -76,6 +76,11 @@ export function Create({
   const abortRef = useRef<AbortController | null>(null);
   const runRef = useRef<() => void>(() => {});
   const previewsRef = useRef<string[]>([]);
+  // FIX: AUDIT-U3 - SYNCHRONOUS double-submit guard. `phase` is React state (set via
+  // setPhase, applied on the next render) so a fast double-tap re-enters run() before it
+  // flips to "running" → two charged generations. A ref updates synchronously, closing
+  // that window before any await.
+  const submittingRef = useRef(false);
   previewsRef.current = previews;
   // Abort any in-flight poll and free preview blobs when the tab unmounts.
   useEffect(() => () => {
@@ -302,23 +307,27 @@ export function Create({
   }
 
   async function run() {
-    if (phase === "running" || !hasSel) return;
+    if (submittingRef.current || phase === "running" || !hasSel) return;
     // A photo effect/model needs a source image (img2img); a video model's image is
     // optional (text2video), so only require an upload for the photo kind in free mode.
     const needPhoto = activeMaxPhotos > 0 && files.length === 0 && (!isModel || mode === "photo");
     if (needPhoto) { setError(t("err_need_photo")); setPhase("error"); return; }
     if (activePromptMode === "required" && !prompt.trim()) { setError(t("err_need_prompt")); setPhase("error"); return; }
+    submittingRef.current = true;  // FIX: AUDIT-U3 - claim the in-flight slot synchronously
     haptic("medium");
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setError(""); setPhase("running"); setStatus(t("uploading")); setProgress(8);
+    // FIX: AUDIT-U3 - one stable token per submit intent; twin requests that still reach
+    // the backend (multi-tab / proxy replay) dedup on it.
+    const idem = newIdempotencyKey();
     try {
       // §13 — negative prompt rides along in params; the backend uses it if the
       // model supports one and ignores it otherwise (unknown keys are safe).
       const genParams = negative.trim() ? { ...params, negative: negative.trim() } : params;
       const { job_id } = isModel && freeModel
-        ? await api.freeModelGenerate(mode, freeModel.key, genParams, prompt, files, ctrl.signal)  // FIX: AUDIT13-L21
-        : await api.effectGenerate(preset!.kind, preset!.id, model, genParams, prompt, files, ctrl.signal);
+        ? await api.freeModelGenerate(mode, freeModel.key, genParams, prompt, files, ctrl.signal, idem)  // FIX: AUDIT13-L21, AUDIT-U3
+        : await api.effectGenerate(preset!.kind, preset!.id, model, genParams, prompt, files, ctrl.signal, idem);
       if (ctrl.signal.aborted) return;
       setStatus(t("generating")); setProgress((p) => Math.max(p, 20));
       const res = await pollJob(job_id, (s) => {
@@ -338,6 +347,8 @@ export function Create({
       const msg = e instanceof Error ? e.message : "err_generic";
       // FIX: AUDIT13-M16 - msg is an i18n KEY; translate it instead of showing it raw.
       setError(msg === "LIMIT" ? t("err_limit") : t(msg)); setPhase("error");
+    } finally {
+      submittingRef.current = false;  // FIX: AUDIT-U3 - release the slot for a genuine retry
     }
   }
 

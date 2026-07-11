@@ -869,6 +869,7 @@ async def free_model_generate(
     model: str,
     params: str = Form("{}"),
     prompt: str = Form(""),
+    idempotency_key: str = Form(""),  # FIX: AUDIT-U3 - per-submit-intent dedup token
     photos: list[UploadFile] = File(default=[]),
     tg=Depends(current_webapp_user),
     session: AsyncSession = Depends(get_session),
@@ -918,6 +919,28 @@ async def free_model_generate(
 
     cost = _compute_cost(kind, model, cfg)
 
+    # FIX: AUDIT-U3 - same idempotent-submit guard as effect_generate (see the long note
+    # there): admit only the first request carrying a given client token, so a double-tap
+    # twin can't charge + queue the free-model generation twice. Skipped when no token is
+    # sent; fails OPEN on Redis down; released on any pre-commit failure.
+    from core.redis_client import first_seen, redis_client
+    idem = (idempotency_key if isinstance(idempotency_key, str) else "").strip()[:100]
+    dedup_key = (
+        "miniapp:gen:dedup:" + hashlib.sha256(
+            f"{user.user_id}|{idem}".encode()
+        ).hexdigest()
+    ) if idem else None
+    if dedup_key is not None and not await first_seen(dedup_key, _GEN_DEDUP_TTL):
+        raise HTTPException(status_code=409, detail="duplicate submit — already generating")
+
+    async def _release_dedup() -> None:
+        if dedup_key is None:
+            return
+        try:
+            await redis_client.delete(dedup_key)
+        except Exception:  # noqa: BLE001 — best-effort release
+            pass
+
     # Charge WITHOUT committing (same atomic charge+job pattern as effect_generate,
     # minus sponsored — a free-choice model is a normal paid generation). Precedence:
     # a photo model's free weekly slot → else ✨ credits.
@@ -929,6 +952,7 @@ async def free_model_generate(
         pack_type, cost = None, 0
     elif not await credits.try_consume(session, user, cost, commit=False):
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=402, detail="not enough credits — top up ✨")
 
     try:
@@ -937,6 +961,7 @@ async def free_model_generate(
         ]
     except Exception as exc:  # noqa: BLE001 — storage/network failure
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=503, detail="upload failed") from exc
 
     # `free_model` stands in for `preset_id`: it marks the job as an in-app Mini App
@@ -960,6 +985,7 @@ async def free_model_generate(
         await session.commit()
     except Exception as exc:  # noqa: BLE001
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=503, detail="could not start generation") from exc
 
     worker = "process_photoeffect_job" if kind == "photo" else "process_video_job"
