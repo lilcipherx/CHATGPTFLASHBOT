@@ -107,16 +107,24 @@ async def _record_tx(
         credits_added=credits_added,
         paid_at=datetime.now(UTC),
     )
-    session.add(tx)
     if gateway_tx_id:
-        # Flush now so a concurrent webhook delivery that passed the SELECT above
-        # trips the unique(gateway_tx_id) constraint here (not at the caller's
-        # commit). On conflict this is a duplicate → treat as already-processed.
+        # Add + flush INSIDE a SAVEPOINT so a concurrent webhook delivery that passed
+        # the SELECT above trips the unique(gateway_tx_id) constraint here (not at the
+        # caller's commit). FIX: AUDIT-6 / AUDIT-P3 - on conflict the savepoint rolls
+        # back and cleanly discards `tx` (it was added within the savepoint), leaving
+        # the caller's outer transaction usable. A bare flush() left the session
+        # aborted, so every later statement in apply_event raised PendingRollbackError.
+        # `tx` must be added inside the savepoint, else its rollback wouldn't remove it
+        # and the caller's commit would re-INSERT and re-conflict. Matches the proven
+        # pattern in referrals._grant_once.
         try:
-            await session.flush()
-        # FIX: AUDIT-6 - use SAVEPOINT so caller's session isn't poisoned
+            async with session.begin_nested():
+                session.add(tx)
+                await session.flush()
         except IntegrityError:
             return None
+    else:
+        session.add(tx)
     return tx
 
 

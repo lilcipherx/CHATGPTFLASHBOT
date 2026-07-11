@@ -72,6 +72,49 @@ async def test_legacy_payload_without_quote_falls_back_to_price_table(monkeypatc
         assert uid == 7003
 
 
+async def test_record_tx_duplicate_flush_does_not_poison_session(monkeypatch):
+    """AUDIT-P3 (P1): when a concurrent webhook delivery slips past the pre-check
+    SELECT and the unique(gateway_tx_id) constraint trips at flush(), _record_tx must
+    absorb it in a SAVEPOINT so the OUTER transaction stays usable. The comment
+    claimed a SAVEPOINT but the code used a bare flush(): after the IntegrityError,
+    SQLAlchemy invalidates the transaction and every later statement in apply_event
+    (referral reward, upgrade notify, promo consume) raises PendingRollbackError."""
+    from core.services import billing
+
+    async with SessionFactory() as s:
+        await get_or_create_user(s, 9001)
+        # A committed row already owns gateway_tx_id="race".
+        s.add(Transaction(
+            user_id=9001, product="premium", duration_months=1, amount=84000,
+            currency="rub", gateway="yookassa", gateway_tx_id="race", status="paid",
+        ))
+        await s.commit()
+
+        # Simulate the race window: the pre-check existence SELECT misses the row.
+        async def _miss(*a, **k):
+            return None
+
+        monkeypatch.setattr(s, "scalar", _miss)
+        tx = await billing._record_tx(
+            s, user_id=9001, product="premium", gateway="yookassa", amount=84000,
+            gateway_tx_id="race", duration_months=1,
+        )
+        assert tx is None  # duplicate → treated as already processed
+        monkeypatch.undo()  # restore real scalar
+
+        # The session must NOT be poisoned: a further write still commits.
+        s.add(Transaction(
+            user_id=9001, product="credits", amount=100, currency="rub",
+            gateway="yookassa", gateway_tx_id="fresh", status="paid",
+        ))
+        await s.commit()  # raises PendingRollbackError if the tx was left aborted
+        from sqlalchemy import select
+        rows = (await s.scalars(
+            select(Transaction).where(Transaction.gateway_tx_id == "fresh")
+        )).all()
+        assert len(rows) == 1
+
+
 async def test_referral_reward_recovered_on_duplicate_webhook(monkeypatch):
     notified: list[int | None] = []
 

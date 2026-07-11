@@ -149,16 +149,19 @@ async def _grant_once(
     referrer = await session.get(User, referrer_id)
     if referrer is None:
         return None
-    session.add(
-        Referral(
-            referrer_id=referrer_id, referred_id=user.user_id,
-            reward_type="credits", reward_amount=reward,
-            status=status, rewarded_at=datetime.now(UTC),
-        )
-    )
-    # FIX: AUDIT-133 - use SAVEPOINT so caller's session isn't poisoned
+    # FIX: AUDIT-133 / AUDIT-P3 - add + flush INSIDE the SAVEPOINT so an IntegrityError
+    # rolls back only the savepoint AND cleanly discards the Referral row. Adding it
+    # before the savepoint (previous form) left the stale row in session.new on
+    # conflict, so the caller's next commit would re-INSERT it and re-poison the tx.
     try:
         async with session.begin_nested():
+            session.add(
+                Referral(
+                    referrer_id=referrer_id, referred_id=user.user_id,
+                    reward_type="credits", reward_amount=reward,
+                    status=status, rewarded_at=datetime.now(UTC),
+                )
+            )
             await session.flush()
     except IntegrityError:
         return None
