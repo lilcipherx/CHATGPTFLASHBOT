@@ -16,7 +16,7 @@ log = structlog.get_logger()
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from core.db import SessionFactory
 from core.models import GenerationJob
@@ -32,7 +32,20 @@ async def process_avatar_job(ctx, job_id: str) -> None:
         # The exact Stars charge this job paid for (stored at selfie upload), so a user
         # with two avatar purchases refunds the RIGHT one — not just the newest.
         charge_id = (job.params or {}).get("charge_id")
-        job.status = "processing"
+        # FIX: AUDIT-G2 - atomic claim: conditional UPDATE WHERE status='pending' so a
+        # duplicate ARQ enqueue (or the claim_pending_avatars sweep racing the original
+        # dispatch) cannot both flip pending→processing and REFUND the SAME Stars
+        # purchase twice. rowcount==0 → another worker already claimed it; bow out
+        # silently. Matches the video/music/photoeffect claim pattern (was: plain
+        # read-check-then-write, a TOCTOU race that double-refunded on concurrent runs).
+        claim = await session.execute(
+            update(GenerationJob)
+            .where(GenerationJob.job_id == job_id, GenerationJob.status == "pending")
+            .values(status="processing")
+        )
+        if claim.rowcount == 0:
+            await session.rollback()
+            return
         await session.commit()
 
         # No avatar provider configured yet → refund the Stars purchase so the user is
