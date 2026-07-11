@@ -29,9 +29,22 @@ function fetchWithTimeout(input: string, init: RequestInit = {}): Promise<Respon
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
 }
 
+// FIX: AUDIT-35 / AUDIT-U7 - map HTTP status → an i18n error KEY (translated by the
+// caller). Single source of truth instead of the same object inlined in three places.
+// 413 (upload/dimensions too large) now surfaces the accurate "too big" message and 503
+// (upload failed / service unavailable) the server message, instead of a generic
+// "something went wrong". Unmapped statuses fall back to err_generic.
+const ERROR_KEY: Record<number, string> = {
+  401: "err_auth", 402: "err_limit", 413: "err_too_big",
+  429: "err_rate", 500: "err_server", 503: "err_server",
+};
+export function errKeyForStatus(status: number): string {
+  return ERROR_KEY[status] || "err_generic";
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetchWithTimeout(`${BASE}/api${path}`, { headers: headers() });
-  if (!res.ok) { const c = `ERROR_${res.status}`; const m: Record<string,string> = { ERROR_402: "err_limit", ERROR_429: "err_rate", ERROR_500: "err_server", ERROR_401: "err_auth" }; throw new Error(m[c] || "err_generic"); }  // FIX: AUDIT-35
+  if (!res.ok) throw new Error(errKeyForStatus(res.status));
   return res.json() as Promise<T>;
 }
 
@@ -41,7 +54,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { ...headers(), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) { const c = `ERROR_${res.status}`; const m: Record<string,string> = { ERROR_402: "err_limit", ERROR_429: "err_rate", ERROR_500: "err_server", ERROR_401: "err_auth" }; throw new Error(m[c] || "err_generic"); }  // FIX: AUDIT-35
+  if (!res.ok) throw new Error(errKeyForStatus(res.status));
   return res.json() as Promise<T>;
 }
 
@@ -79,8 +92,8 @@ async function uploadEffect(
     const res = await fetch(`${BASE}/api${path}`, {
       method: "POST", headers: headers(), body: form, signal: ctrl.signal,
     });
-    if (res.status === 402) throw new Error("LIMIT");
-    if (!res.ok) { const c = `ERROR_${res.status}`; const m: Record<string,string> = { ERROR_402: "err_limit", ERROR_429: "err_rate", ERROR_500: "err_server", ERROR_401: "err_auth" }; throw new Error(m[c] || "err_generic"); }  // FIX: AUDIT-35
+    if (res.status === 402) throw new Error("LIMIT");  // callers map "LIMIT" → err_limit
+    if (!res.ok) throw new Error(errKeyForStatus(res.status));  // FIX: AUDIT-35 / AUDIT-U7
     return res.json();
   } finally {
     clearTimeout(timer);

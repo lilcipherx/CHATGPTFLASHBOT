@@ -4,9 +4,28 @@ vi.mock("@twa-dev/sdk", () => ({
   default: { initData: "auth_date=1&hash=x", ready: () => {}, expand: () => {} },
 }));
 
-import { api, newIdempotencyKey, pollJob } from "../api/client";
+import { api, errKeyForStatus, newIdempotencyKey, pollJob } from "../api/client";
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("HTTP status → error key (AUDIT-U7)", () => {
+  it("maps the upload/service statuses to accurate i18n keys", () => {
+    expect(errKeyForStatus(401)).toBe("err_auth");
+    expect(errKeyForStatus(402)).toBe("err_limit");
+    expect(errKeyForStatus(413)).toBe("err_too_big");   // was err_generic
+    expect(errKeyForStatus(429)).toBe("err_rate");
+    expect(errKeyForStatus(500)).toBe("err_server");
+    expect(errKeyForStatus(503)).toBe("err_server");    // was err_generic
+    expect(errKeyForStatus(418)).toBe("err_generic");   // unmapped → generic
+  });
+
+  it("effectGenerate throws err_too_big on a 413 (oversize upload)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 413 })));
+    await expect(
+      api.effectGenerate("photo", 1, "nano_banana", {}, "", []),
+    ).rejects.toThrow("err_too_big");
+  });
+});
 
 async function readFormField(init: RequestInit | undefined, name: string): Promise<string | null> {
   const body = init?.body as FormData;
