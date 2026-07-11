@@ -44,7 +44,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/ai_router/music_adapters.py` | pending | — |
 | `core/ai_router/openai_adapter.py` | pending | — |
 | `core/ai_router/perplexity_adapter.py` | pending | — |
-| `core/ai_router/registry.py` | pending | — |
+| `core/ai_router/registry.py` | fixed | fixed `cfdcb0e` — G-1 pass cost_micros to mark_success |
 | `core/ai_router/search_adapter.py` | pending | — |
 | `core/ai_router/stt_adapter.py` | pending | — |
 | `core/ai_router/tts_adapter.py` | pending | — |
@@ -96,7 +96,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/services/__init__.py` | pending | — |
 | `core/services/admin_auth.py` | pending | — |
 | `core/services/ads.py` | pending | — |
-| `core/services/ai_routing.py` | pending | — |
+| `core/services/ai_routing.py` | reviewed | reviewed — G-1 spend-cap accrual verified |
 | `core/services/analytics.py` | pending | — |
 | `core/services/autorenew.py` | fixed | fixed — P-2/P-4 rollback-greenlet + batch (122dc7b) |
 | `core/services/billing.py` | fixed | fixed — P-3 _record_tx savepoint (642c33e) |
@@ -106,7 +106,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/services/contests.py` | pending | — |
 | `core/services/context.py` | pending | — |
 | `core/services/credits.py` | pending | — |
-| `core/services/cron_control.py` | pending | — |
+| `core/services/cron_control.py` | fixed | fixed `2d1c729` — G-4 claim under SELECT FOR UPDATE |
 | `core/services/crypto.py` | pending | — |
 | `core/services/daily_bonus.py` | pending | — |
 | `core/services/documents.py` | pending | — |
@@ -121,7 +121,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/services/i18n_overrides.py` | pending | — |
 | `core/services/i18n_translate.py` | pending | — |
 | `core/services/loyalty.py` | pending | — |
-| `core/services/media_dispatch.py` | pending | — |
+| `core/services/media_dispatch.py` | fixed | fixed `cfdcb0e` — G-1 accrue routed model cost |
 | `core/services/moderation.py` | pending | — |
 | `core/services/notifications.py` | pending | — |
 | `core/services/notify.py` | pending | — |
@@ -184,7 +184,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `api/routers/__init__.py` | pending | — |
 | `api/routers/gallery.py` | pending | — |
 | `api/routers/health.py` | fixed | fixed — A-2 /metrics fail-closed in prod polling (31c17d5) |
-| `api/routers/miniapp.py` | pending | — |
+| `api/routers/miniapp.py` | fixed | fixed `de99766` — U-3 idempotency-key dedup guard |
 | `api/routers/redirect.py` | pending | — |
 | `api/routers/webhooks.py` | pending | — |
 
@@ -243,20 +243,20 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 |---|---|---|
 | `workers/__init__.py` | pending | — |
 | `workers/autorenew_tasks.py` | pending | — |
-| `workers/avatar_tasks.py` | pending | — |
+| `workers/avatar_tasks.py` | fixed | fixed `3381928` — G-2 atomic pending→processing claim |
 | `workers/billing_tasks.py` | pending | — |
 | `workers/broadcast_tasks.py` | pending | — |
 | `workers/channel_tasks.py` | pending | — |
 | `workers/gen_notify_tasks.py` | pending | — |
 | `workers/main.py` | pending | — |
-| `workers/music_tasks.py` | pending | — |
+| `workers/music_tasks.py` | fixed | fixed `5296dd3` — G-3 resumable processing-claim |
 | `workers/notify_tasks.py` | pending | — |
-| `workers/photo_tools_tasks.py` | pending | — |
+| `workers/photo_tools_tasks.py` | fixed | fixed `5296dd3` — G-5 conditional claim + import tidy |
 | `workers/photoeffect_tasks.py` | pending | — |
 | `workers/report_tasks.py` | pending | — |
 | `workers/retention_extra_tasks.py` | pending | — |
 | `workers/retention_tasks.py` | pending | — |
-| `workers/video_tasks.py` | pending | — |
+| `workers/video_tasks.py` | fixed | fixed `5296dd3` — G-3 resumable processing-claim |
 
 ## `migrations` (46 files)
 

@@ -290,3 +290,25 @@ exists, so cancel-charge race is N/A. Gaps:
   (`api/admin/ai_routing.py:28`) — solid at write time, but live gateway calls don't
   re-validate resolved IP per request (DNS-rebinding residual). Recommend enforcing
   `AI_BASE_URL_ALLOWLIST` in prod (already supported).
+
+### Phase 4 — outcomes
+
+| ID | Sev | Status | Commit | Test |
+|---|---|---|---|---|
+| G-1 spend cap dead code (cost never accrued) | P1 | ✅ fixed | `cfdcb0e` | `test_submit_first_accrues_model_cost_to_account_spend` |
+| G-2 avatar double Stars refund (worker claim half) | P1 | ✅ fixed | `3381928` | existing avatar/integration suite (claim structural; concurrency not SQLite-testable) |
+| G-3 video/music resume stranded on `processing` | P2 | ✅ fixed | `5296dd3` | `test_resume_processing_job_polls_and_completes` (red→green) |
+| G-5 faceswap/upscale plain ORM claim | P2 | ✅ fixed | `5296dd3` | `tests/test_phototools.py` regression (structural claim parity) |
+| G-4 cron `claim()` read-check-write (beat >1 double-fire) | P2 | ✅ fixed | `2d1c729` | `tests/test_cron_control.py` (FOR UPDATE; single-thread behaviour preserved) |
+| U-3 double-submit double-charge (backend) | P2 | ✅ fixed (backend) | `de99766` | `test_double_submit_same_idempotency_key_is_deduped` + `test_repeat_generation_with_different_key_is_allowed` |
+| G-6 base_url SSRF time-of-check-only | P3 | ⏸ config rec | — | set `AI_BASE_URL_ALLOWLIST` in prod (already supported) → Phase 11 config gate |
+| U-3 frontend (synchronous `useRef` flag + send token) | P2 | → Phase 7 | — | Mini App UI change |
+| beat=1 config enforcement in compose | P2 | → Phase 9 | — | infra (`--scale beat` is not code-guarded; G-4 makes it *safe* regardless) |
+
+Notes: G-3's `CancelledError` observation is **not** a bug — letting it propagate
+out of the poll loop is correct (swallowing it would break graceful worker
+shutdown); no change made. G-2's other half (re-check `tx.status` under the FOR
+UPDATE lock in `refunds.py`) was fixed in Phase 2 (`0084556`). Full-suite
+regression after all Phase 4 fixes: **869 passed** (`pytest tests/`, 6:01). Every
+touched source file left ruff-clean (`photo_tools_tasks.py` import block also
+tidied to fully clean).
