@@ -187,3 +187,45 @@ async def test_admin_approve_missing_item_404():
         with pytest.raises(HTTPException) as exc:
             await admin_gallery.approve_item(999, _req(), admin=admin, session=s)
         assert exc.value.status_code == 404
+
+
+async def test_submit_endpoint_rate_limited(monkeypatch):
+    """/gallery/submit must be rate-limited: without a guard a user could spam submit,
+    burning moderation cost (an AI call per prompt) and flooding the review queue."""
+    from fastapi import HTTPException
+
+    from api.routers import gallery as gallery_router
+    from core.services import ratelimit
+
+    async def _deny(_key, _limit, _window):
+        return False
+
+    monkeypatch.setattr(ratelimit, "allow", _deny)
+
+    async with SessionFactory() as s:
+        await _user(s, user_id=42)
+        req = gallery_router.SubmitRequest(image_url="https://cdn/x.png", prompt="a cat")
+        tg = {"id": 42, "username": "u", "language_code": "ru"}
+        with pytest.raises(HTTPException) as exc:
+            await gallery_router.submit_item(req, tg=tg, session=s)
+        assert exc.value.status_code == 429
+        # And nothing was written to the queue.
+        assert await gallery.pending_list(s) == []
+
+
+async def test_submit_endpoint_allows_within_limit(monkeypatch):
+    """Under the limit, the endpoint still creates a pending item (guard is not a wall)."""
+    from api.routers import gallery as gallery_router
+    from core.services import ratelimit
+
+    async def _ok(_key, _limit, _window):
+        return True
+
+    monkeypatch.setattr(ratelimit, "allow", _ok)
+
+    async with SessionFactory() as s:
+        await _user(s, user_id=43)
+        req = gallery_router.SubmitRequest(image_url="https://cdn/x.png", prompt=None)
+        tg = {"id": 43, "username": "u", "language_code": "ru"}
+        out = await gallery_router.submit_item(req, tg=tg, session=s)
+        assert out["status"] == "pending"

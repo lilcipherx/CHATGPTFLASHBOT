@@ -44,6 +44,12 @@ async def submit_item(
     )
     if getattr(user, "is_banned", False):
         raise HTTPException(status_code=403, detail="banned")
+    # FIX: AUDIT-P6 - rate-limit submissions. Without this a user could spam /submit,
+    # burning one moderation call (an AI request per prompt) per hit and flooding the
+    # review queue. 10/hour is well above any legitimate submission rate.
+    from core.services import ratelimit
+    if not await ratelimit.allow(f"gallery:submit:{user.user_id}", 10, 3600):
+        raise HTTPException(status_code=429, detail="rate limit")
     image_url = (req.image_url or "").strip()
     if not image_url:
         raise HTTPException(status_code=400, detail="image_url required")
