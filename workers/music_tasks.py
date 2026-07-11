@@ -100,13 +100,17 @@ async def process_music_job(ctx, job_id: str) -> None:
         # backend (a multi-backend pool must not poll a peer). Reassign params so
         # SQLAlchemy tracks the mutation.
         job.params = {**(job.params or {}), "backend": backend.name}
-        # FIX: F5 - conditional UPDATE WHERE status='pending' AND refunded_at IS NULL
-        # (same fix as F4 in video_tasks — prevents sweep from racing the worker).
+        # FIX: F5 - conditional UPDATE WHERE status IN ('pending','processing') AND
+        # refunded_at IS NULL (same fix as F4 in video_tasks — prevents sweep from
+        # racing the worker).
+        # FIX: AUDIT-G3 - accept 'processing' too so a mid-flight redelivered job is
+        # actually resumed (submit_or_resume reuses the provider task) instead of
+        # rowcount 0 → silent return → stranded until the stuck sweep.
         from sqlalchemy import update as _update
         claim = await session.execute(
             _update(GenerationJob)
             .where(GenerationJob.job_id == job.job_id,
-                   GenerationJob.status == "pending",
+                   GenerationJob.status.in_(("pending", "processing")),
                    GenerationJob.refunded_at.is_(None))
             .values(status="processing", provider_job_id=provider_job_id,
                     params={**(job.params or {}), "backend": backend.name})

@@ -8,17 +8,18 @@ input as a fake result. Swap the `_process_*` bodies for the real provider call
 """
 from __future__ import annotations
 
-# FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
-# the AUDIT-11 pass (was: NameError on any worker error → worker crash).
-import structlog
-log = structlog.get_logger()
-
-
 from datetime import UTC, datetime
+
+import structlog
+from sqlalchemy import update
 
 from core.db import SessionFactory
 from core.models import GenerationJob
 from core.services.refunds import refund_job
+
+# FIX: AUDIT12-6..11 - structlog logger for log.warning calls added by the AUDIT-11
+# pass (was: NameError on any worker error → worker crash).
+log = structlog.get_logger()
 
 
 async def _notify_unavailable(user_id: int) -> None:
@@ -54,7 +55,17 @@ async def process_faceswap_job(ctx, job_id: str) -> None:
         job = await session.get(GenerationJob, job_id)
         if job is None or job.status != "pending":
             return
-        job.status = "processing"
+        # FIX: AUDIT-G5 - atomic claim (conditional UPDATE WHERE status='pending'),
+        # matching video/music/photoeffect/avatar. rowcount==0 → another worker
+        # already claimed this job, so bow out instead of refunding it a second time.
+        claim = await session.execute(
+            update(GenerationJob)
+            .where(GenerationJob.job_id == job_id, GenerationJob.status == "pending")
+            .values(status="processing")
+        )
+        if claim.rowcount == 0:
+            await session.rollback()
+            return
         await session.commit()
         src = (job.params or {}).get("source")
         if not src:
@@ -76,7 +87,17 @@ async def process_upscale_job(ctx, job_id: str) -> None:
         job = await session.get(GenerationJob, job_id)
         if job is None or job.status != "pending":
             return
-        job.status = "processing"
+        # FIX: AUDIT-G5 - atomic claim (conditional UPDATE WHERE status='pending'),
+        # matching video/music/photoeffect/avatar. rowcount==0 → another worker
+        # already claimed this job, so bow out instead of refunding it a second time.
+        claim = await session.execute(
+            update(GenerationJob)
+            .where(GenerationJob.job_id == job_id, GenerationJob.status == "pending")
+            .values(status="processing")
+        )
+        if claim.rowcount == 0:
+            await session.rollback()
+            return
         await session.commit()
         img = (job.params or {}).get("image")
         if not img:

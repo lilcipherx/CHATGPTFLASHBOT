@@ -192,15 +192,20 @@ async def process_video_job(ctx, job_id: str) -> None:
         # polling the SAME backend (a multi-backend pool must not poll a peer that
         # doesn't own the task). Reassign params so SQLAlchemy tracks the change.
         job.params = {**(job.params or {}), "backend": backend.name}
-        # FIX: F4 - conditional UPDATE WHERE status='pending' AND refunded_at IS NULL
-        # so the stuck-job sweep can't have the job refunded between our read and write
-        # (was: direct ORM assignment overwrote sweep's 'failed'+'refunded_at' → user
-        # got BOTH the delivered video AND the refund).
+        # FIX: F4 - conditional UPDATE WHERE status IN ('pending','processing') AND
+        # refunded_at IS NULL so the stuck-job sweep can't have the job refunded
+        # between our read and write (was: direct ORM assignment overwrote sweep's
+        # 'failed'+'refunded_at' → user got BOTH the delivered video AND the refund).
+        # FIX: AUDIT-G3 - accept 'processing' too (not just 'pending'): a job
+        # redelivered mid-flight (crashed after submit, before a result) is resumed by
+        # submit_or_resume above, so the claim must succeed to actually re-poll it
+        # instead of rowcount 0 → silent return → stranded until the 30-min sweep. The
+        # refunded_at IS NULL guard still blocks a swept+refunded job.
         from sqlalchemy import update as _update
         claim = await session.execute(
             _update(GenerationJob)
             .where(GenerationJob.job_id == job.job_id,
-                   GenerationJob.status == "pending",
+                   GenerationJob.status.in_(("pending", "processing")),
                    GenerationJob.refunded_at.is_(None))
             .values(status="processing", provider_job_id=provider_job_id,
                     params={**(job.params or {}), "backend": backend.name})
