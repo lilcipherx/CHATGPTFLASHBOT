@@ -312,3 +312,38 @@ UPDATE lock in `refunds.py`) was fixed in Phase 2 (`0084556`). Full-suite
 regression after all Phase 4 fixes: **869 passed** (`pytest tests/`, 6:01). Every
 touched source file left ruff-clean (`photo_tools_tasks.py` import block also
 tidied to fully clean).
+
+---
+
+## Phase 5 — Migrations / DB
+
+Root cause (B-2): migration `0039_admin_backup_codes` creates
+`admin_users.backup_codes_hashed` (2FA recovery codes) but the `AdminUser` model
+never declared the column, so `scripts.check_migrations` autogenerate saw a
+`remove_column` drift → **exit 1**, and the CI `migrations` job was red on `main`.
+The column is orphaned scaffolding (no service/API/model code reads it) but 0039
+is in the deployed chain, so the column already exists on the prod table —
+dropping it would be a **destructive prod migration**, whereas declaring it on the
+model is a zero-DB-change alignment.
+
+| ID | Sev | Status | Commit | Evidence |
+|---|---|---|---|---|
+| B-2 model/migration drift (`backup_codes_hashed`) | P1 | ✅ fixed | `0de8cd3` | `scripts.check_migrations` **exit 1 → exit 0**; typed `JSONType` (JSONB/JSON) + `server_default '[]'` identical to 0039 |
+
+Verified-correct (no change):
+- **Single head** `0042_search_model` — linear chain, no branch/duplicate heads.
+- **Fresh `alembic upgrade head`** on an isolated temp DB applies `0000→0042`
+  cleanly (exit 0). 43 revisions.
+- **Rollback path**: `upgrade head → downgrade -1 → upgrade head` round-trips
+  cleanly (exit 0) — the latest revision is deploy-rollback-safe. Every revision
+  has a real `downgrade()` (no `pass`-only irreversibles); destructive `op.drop_*`
+  appears only inside downgrade bodies, never on an upgrade/data path.
+- **Engine/pool/PgBouncer** (`core/db.py`): correct. PgBouncer transaction-pooling
+  uses `NullPool` + `statement_cache_size=0` + `prepared_statement_cache_size=0`
+  (the asyncpg-under-transaction-pooling gotcha, handled right); direct Postgres
+  uses `pool_pre_ping` + tunable pool; `expire_on_commit=False` avoids post-commit
+  `MissingGreenlet`. Session lifecycle / `with_for_update` / `begin_nested`
+  patterns were already validated + hardened in Phases 2–4.
+
+Regression: 196 admin/auth/migration tests green after the model change; full
+suite unaffected (869 green baseline stands — only a model column was added).

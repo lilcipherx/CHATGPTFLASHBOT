@@ -54,7 +54,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/bot_client.py` | pending | — |
 | `core/config.py` | fixed | fixed — P-1 boot guard for Stripe webhook secret (e03e500) |
 | `core/constants.py` | pending | — |
-| `core/db.py` | pending | — |
+| `core/db.py` | reviewed | reviewed — engine/pool/PgBouncer config correct |
 | `core/i18n/__init__.py` | pending | — |
 | `core/i18n/locales/__init__.py` | pending | — |
 | `core/i18n/locales/ar.py` | pending | — |
@@ -68,7 +68,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `core/lifecycle.py` | pending | — |
 | `core/logging_setup.py` | pending | — |
 | `core/models/__init__.py` | pending | — |
-| `core/models/admin.py` | pending | — |
+| `core/models/admin.py` | fixed | fixed `0de8cd3` — B-2 declare backup_codes_hashed (drift) |
 | `core/models/ai_routing.py` | pending | — |
 | `core/models/base.py` | pending | — |
 | `core/models/billing.py` | pending | — |
@@ -304,7 +304,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `migrations/versions/0036_checkout_intents.py` | pending | — |
 | `migrations/versions/0037_round5_schema_fixes.py` | pending | — |
 | `migrations/versions/0038_user_cascade_delete.py` | pending | — |
-| `migrations/versions/0039_admin_backup_codes.py` | pending | — |
+| `migrations/versions/0039_admin_backup_codes.py` | reviewed | reviewed — B-2 root; migration correct, model aligned |
 | `migrations/versions/0040_cron_jobs.py` | pending | — |
 | `migrations/versions/0041_paymethod_checkout_cascade.py` | pending | — |
 | `migrations/versions/0042_search_model.py` | pending | — |
