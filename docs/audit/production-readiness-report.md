@@ -414,3 +414,37 @@ Note: the U-1/U-2/U-5 sub-agent labels from the original plan were not individua
 reloadable in this continued session; the frontend typecheck/unit/e2e/build baseline
 above is green and serves as the verified state. Any residual UI polish is tracked for a
 follow-up and is not a production blocker.
+
+---
+
+## Phase 8 — Security / supply chain
+
+| ID | Sev | Area | Status | Commit | Evidence |
+|---|---|---|---|---|---|
+| S-metrics-edge | P2 | Caddyfile | ✅ fixed | `251af17` | Catch-all `handle /*` proxied `/metrics` to the internet (token-gated but reachable), contradicting the "Caddy blocks /metrics" claim in the app docstring + prometheus.yml. Added `handle /metrics { respond 403 }`; internal Prometheus scrapes `api:8000` directly (not via Caddy) so scraping is unaffected. |
+| S-pgbouncer-tag | P3 | docker-compose.prod.yml | 📝 recommend | — | `edoburu/pgbouncer:latest` is an unpinned tag → non-reproducible builds; a shifted upstream image lands silently on the next pull. Pin to a specific version/digest. Not changed here to avoid guessing a tag that could break deploy — do it with the image digest captured during the Phase 11 discovery. |
+| S-actions-pin | P3 | .github/workflows | 📝 recommend | — | Actions are pinned to major tags (`actions/checkout@v4`, `setup-python@v5`, `build-push-action@v6`, …) not full commit SHAs — a mutated tag could inject a malicious step. Pin to SHAs (Dependabot keeps them current). Low-risk hardening for a dedicated PR. |
+| S-base-digest | P3 | Dockerfile | 📝 recommend | — | Base images are tag-pinned (`python:3.12-slim`, `caddy:2-alpine`, `postgres:16-alpine`) not digest-pinned. Optional reproducibility hardening; acceptable as-is. |
+
+Verified-correct (no change — strong existing posture):
+- **Container**: multi-stage build, runtime runs as **non-root** `appuser` (uid 1001),
+  no build toolchain in the runtime image, `HEALTHCHECK` on `/health/ready`, and
+  `pip install --require-hashes` when `requirements.lock` is present (tamper-evident).
+- **Network isolation** (`docker-compose.prod.yml`): postgres / pgbouncer / redis / minio
+  / api / worker / beat all `ports: []` — **nothing internal is published**; only Caddy
+  binds 80/443. `api` runs `--forwarded-allow-ips="*"` but is unreachable except through
+  Caddy, so XFF trust is sound.
+- **Caddy edge**: HSTS (preload) + `X-Content-Type-Options nosniff` + `Referrer-Policy`;
+  `/api/admin/*` IP-allowlisted at the proxy (`remote_ip` → 403) on top of app RBAC;
+  **X-Forwarded-For is REPLACED with the real peer IP** (`{remote_host}`) so a client
+  can't spoof it (protects the webhook source-IP allowlist + rate-limit keys); strict
+  per-path CSP (admin `frame-ancestors 'none'` + `X-Frame-Options DENY`; Mini App
+  `frame-ancestors` limited to telegram.org); `ADMIN_ALLOW_IP` and `DOMAIN` are
+  fail-closed (`:?required`).
+- **Static scans**: `bandit -r core api bot workers -ll -q` → **0 findings** (exit 0).
+  `pip-audit -r requirements.txt --strict` runs in CI on Linux; locally blocked by a
+  Windows venv-stdlib gap (`ModuleNotFoundError: venv` inside pip-audit) — deferred to CI,
+  which already gates it.
+- **Auth/webhook authenticity**: payment webhooks verify provider signature (YooKassa
+  authoritative re-fetch) + source-IP allowlist (fail-closed on public deploy) +
+  idempotent `apply_event`; Telegram updates deduped by SETNX (Phase 6 F4).

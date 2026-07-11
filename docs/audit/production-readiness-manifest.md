@@ -664,7 +664,7 @@ caches, binary media, runtime logs (none of these are git-tracked here).
 | `CHANGELOG.md` | pending | — |
 | `CLAUDE.md` | pending | — |
 | `CONTRIBUTING.md` | pending | — |
-| `Caddyfile` | pending | — |
+| `Caddyfile` | fixed | fixed — P8 block /metrics at public edge (251af17) |
 | `DEPLOYMENT.md` | pending | — |
 | `DEPLOY_AWS.md` | pending | — |
 | `Dockerfile` | pending | — |
