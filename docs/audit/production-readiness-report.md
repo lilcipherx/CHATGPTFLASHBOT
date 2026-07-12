@@ -761,3 +761,46 @@ To enable later: set `ALERT_BOT_TOKEN` / `ALERT_CHAT_ID` / `GRAFANA_ADMIN_PASSWO
   (`support < moderator < admin < superadmin`) via `role_allows`; app-layer IP allow-list with
   CIDR support layered under Caddy's edge allow-list.
 - No P0–P2 defect. No code change required.
+
+### Remaining domains — VERIFIED (2026-07-12)
+
+- **Edge / Caddy.** Deployed `Caddyfile` sha256 **matches the repo byte-for-byte** (no edge
+  drift). Hardening confirmed: HSTS, `X-Content-Type-Options: nosniff`, per-path framing (admin
+  `DENY` + CSP, Mini App framed by Telegram origins only), admin API IP-restricted at the proxy
+  (`@admin_api → 403`, `ADMIN_ALLOW_IP` set in prod), `X-Forwarded-For` rewritten to the real
+  peer (defeats client IP spoofing that the webhook/audit allow-lists rely on), `/metrics`
+  blocked at the public edge (403).
+- **i18n completeness.** All 8 locales (`ar en es fr pt ru uz zh`) carry **exactly 307 keys —
+  0 missing, 0 extra** vs the `ru` base. No translation-key drift → no silent fallback/KeyError.
+- **Workers / beat scheduler.** Correct split: `WorkerSettings` (scalable, *no* cron) vs
+  `BeatSettings` (single scheduler owning all cron) prevents the classic "scaling multiplies
+  cron" bug; prod runs exactly one `beat` + one `worker`. Cron is DB-driven (admin on/off +
+  interval via `cron_control.claim`), provider keys hot-refresh every ~30 s, Sentry is
+  initialised in the worker/beat processes, and all money/reliability sweeps are scheduled
+  (`expire_subscriptions`, `sweep_stuck_jobs`, `renew_subscriptions`, stuck broadcast/channel
+  sweeps, retention purges).
+- **Rate-limiting / anti-abuse.** Redis fixed-window limiter (`INCR` + `EXPIRE nx` in one
+  pipeline → crash-safe, anchored window), fail-open on Redis outage (throttle is best-effort;
+  argon2/RBAC are the real gates), payment flow carved out (`pre_checkout_query` /
+  `shipping_query` / `successful_payment` never throttled → no money lost), registered as an
+  outer middleware so spam is rejected without a Postgres round-trip.
+- **Stars money-in path.** Amounts are fixed server-side at invoice time (no user tampering
+  vector), activation reuses the idempotent billing functions keyed on
+  `telegram_payment_charge_id`, unknown payloads and post-charge activation failures refund the
+  Stars, and a paid avatar creates an `awaiting_selfie` job so the stuck-sweep refunds a
+  never-delivered purchase.
+- No P0–P2 defect in any of these. No code change required.
+
+## Final verdict of the 2026-07-12 zero-trust pass
+
+Eleven domains were independently re-verified against the live tree, the running prod host, and
+GitHub — payments (external webhooks + Stars), backend/CI gates, frontend, AI adapters, backups,
+admin security, edge/Caddy, i18n, workers/beat, rate-limiting, and observability posture.
+**Zero P0–P2 code defects surfaced**; every "fixed" claim spot-checked held up under
+re-verification. The only actionable operational item — the monitoring stack not being deployed —
+was confirmed to be a **deliberate owner decision** (monitoring via the admin panel).
+
+Context that bounds the verdict: this is a **pre-launch production** (DB carries 6 users, 0
+transactions, 0 generation jobs), so load- and volume-dependent behaviour is production-*ready*
+by code review but not yet production-*proven* by real traffic. `pip-audit` and `docker build`
+remain CI-only on the audit host. Money-flow e2e and Tribute HMAC still require staging.
