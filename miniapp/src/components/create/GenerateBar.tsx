@@ -5,15 +5,16 @@ import { t } from "../../i18n";
 export type Phase = "config" | "running" | "done" | "error";
 
 /**
- * Create Media — панель генерации (§8, §9 ТЗ). Держит все визуальные состояния
- * основного действия:
- *  - config  → строка стоимости + большая кнопка «Создать N✨» (стоимость
- *              пересчитывается контейнером при смене модели/настроек);
- *  - running → лейбл статуса + прогресс-бар;
- *  - error   → баннер ошибки (форма выше сохранена для повтора);
- *  - done    → превью результата + Скачать / Поделиться / Создать ещё.
- * Использует обычную DOM-кнопку (не нативный Telegram MainButton), т.к. страница
- * живёт как вкладка с постоянной нижней навигацией.
+ * Create Media — панель генерации (§8, §9 ТЗ). Редизайн ключевого флоу (Вариант A):
+ *  - config  → ЛИПКИЙ нижний футер: строка стоимости/баланса + крупная CTA. Когда
+ *              баланса не хватает — CTA превращается в предупреждение (не молчаливый
+ *              disabled), чтобы причина была очевидна;
+ *  - running → тот же липкий футер с ПОШАГОВЫМ прогрессом (Загрузка → Очередь →
+ *              Генерация) поверх линейной полосы, чтобы ожидание читалось как этапы;
+ *  - error   → баннер ошибки над CTA (форма выше сохранена для повтора);
+ *  - done    → «геройский» крупный показ результата + Скачать / Ещё / Поделиться.
+ * Обычная DOM-кнопка (не нативный Telegram MainButton): страница живёт как вкладка с
+ * постоянной нижней навигацией. Контракт props НЕ изменён — оркестратор не трогаем.
  */
 export function GenerateBar({
   phase, kind, cost, balance, progress, status, error, resultUrl,
@@ -42,38 +43,75 @@ export function GenerateBar({
   }
   function share() { if (resultUrl) WebApp.openLink(resultUrl); }
 
+  // done → hero reveal (not sticky; it's the payoff, viewed in place).
   if (phase === "done" && resultUrl) {
     return (
       <div className="gen-result">
-        {kind === "video"
-          ? <video className="preview" src={resultUrl} controls autoPlay loop muted />
-          : <img className="preview" src={resultUrl} alt="result" />}
-        <button className="btn" onClick={download}>{t("download")}</button>
-        <button className="btn secondary" onClick={share}>{t("share")}</button>
-        <button className="btn secondary" onClick={onReset}>{t("create_more")}</button>
+        <div className="gen-hero">
+          {kind === "video"
+            ? <video className="preview" src={resultUrl} controls autoPlay loop muted playsInline />
+            : <img className="preview" src={resultUrl} alt="result" />}
+        </div>
+        <button className="btn accent" onClick={download}>{t("download")}</button>
+        <div className="btn-row">
+          <button className="btn secondary" onClick={onReset}>{t("create_more")}</button>
+          <button className="btn secondary" onClick={share}>{t("share")}</button>
+        </div>
       </div>
     );
   }
 
+  // Insufficient balance: surface the reason instead of a silent disabled button.
+  const insufficient = balance !== null && cost > 0 && balance < cost;
+  const running = phase === "running";
+
+  // Stepped progress: map the container's status string to the active stage. The
+  // container drives status via t("uploading") → t("queued")/t("generating").
+  const steps = [t("uploading"), t("queued"), t("generating")];
+  const active = status === t("queued") ? 1 : status === t("generating") ? 2 : 0;
+
   return (
     <div className="gen-bar">
       {phase === "error" && <div className="error-banner">{error}</div>}
-      {phase === "running" && (
+
+      {running && (
         <div className="gen-progress">
-          <div className="gen-progress-label"><span className="spinner" /> {status} · {progress}%</div>
-          <div className="progress"><i style={{ width: `${progress}%` }} /></div>
+          <div className="gen-steps" aria-hidden="true">
+            {steps.map((label, i) => (
+              <div
+                key={i}
+                className={`gen-step ${i < active ? "done" : i === active ? "active" : "pending"}`}
+              >
+                <span className="gen-step-dot" />
+                <span className="gen-step-label">{label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+            <i style={{ width: `${progress}%` }} />
+          </div>
         </div>
       )}
-      <div className="cost-bar">
-        {t("cost")} <b>{cost}✨</b>
-        {balance !== null && <span className="muted"> · {t("balance")} {balance}✨</span>}
+
+      <div className="gen-cost">
+        <span>{t("cost")} <b>{cost}✨</b></span>
+        {balance !== null && (
+          <span className={`gen-balance ${insufficient ? "low" : ""}`}>
+            {t("balance")} {balance}✨
+          </span>
+        )}
       </div>
+
       <button
-        className="btn gen-cta"
-        disabled={phase === "running" || !canGenerate}
+        className={`btn gen-cta ${insufficient && !running ? "warn" : "accent"}`}
+        disabled={running || !canGenerate || insufficient}
         onClick={onGenerate}
       >
-        {phase === "running" ? (status || t("generating")) : `${t("generate")} ${cost}✨`}
+        {running
+          ? (status || t("generating")) + (progress ? ` · ${progress}%` : "")
+          : insufficient
+            ? t("err_limit")
+            : `${t("generate")} ${cost}✨`}
       </button>
     </div>
   );
