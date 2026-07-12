@@ -162,10 +162,37 @@ bug class. Head now `0044`; reversible; check_migrations OK; 30-test gifts/conte
 - Migration chain 0000→0043 linear, single head, no multi-head risk; backfill index migrations
   all use the CONCURRENTLY+autocommit_block safe pattern.
 
+---
+
+## Loop L3 remainder + L5 (workers / uploads / storage) — verified clean
+
+### L3 workers idempotency — CONFIRMED safe
+- `workers/photoeffect_tasks.process_photoeffect_job`: claims via conditional `UPDATE ... WHERE
+  status='pending' AND refunded_at IS NULL` → rowcount 0 returns (no double-process); on failure
+  re-checks `status=='processing'` before `refund_job` (no double-refund vs the stuck-job sweep).
+  `refund_job` itself is race-safe (L1). Same claim/refund pattern across the generation workers.
+
+### L5 uploads / storage / SSRF — CONFIRMED safe
+- `storage.save_upload`: keys are `uuid4().hex` (no user-controlled filename → no path traversal);
+  content-type mapped, default `application/octet-stream`. Delete guards against `/media/..`.
+- `storage.rehost_remote`: real SSRF defense — `_is_ssrf_url_async` resolves DNS via getaddrinfo
+  and rejects if ANY resolved IP `is_loopback/is_link_local/is_private/is_reserved` (blocks
+  169.254.169.254 metadata, 10/192.168/172.16, localhost). Manual per-hop redirect re-validation
+  (follow_redirects=False) closes the redirect-to-metadata + DNS-rebinding gap; streaming body
+  with Content-Length pre-check + running-total cap prevents OOM. No P0/P1.
+
+### Migrations 0043/0044 production re-verification (per user request)
+See `docs/loop/migration-runbook.md`. Verified: linear single head `0044`; env.py runs all
+migrations in ONE outer transaction, and `autocommit_block()` correctly hosts `CREATE INDEX
+CONCURRENTLY` outside it — identical to the already-deployed 0004/0007/0021/0023/0038 pattern.
+Additive indexes only; idempotent + reversible (`DROP INDEX CONCURRENTLY` downgrade). Runbook
+documents backup, INVALID-index recovery, and an app-only rollback (old app runs fine against
+the indexed schema — no schema downgrade needed).
+
 ### Next action
-Continue L5 (backend/API + bot handlers/FSM/uploads/S3) and L3 remainder (workers idempotency),
-then L6 Playwright e2e (Mini App/Admin) and L7 security/ops + read-only AWS inventory. Merge of
-PR #3 + AWS deploy remain the user's call (harness requires human review; deploy authorized
-"after merge").
+L7 infra: (1) F1 CI remediation — precise root cause + a non-bypassing local CI-mirror gate +
+owner runbook; (2) read-only AWS inventory via `ssh flashbot` (deployed SHA, container health,
+ports/SG, `alembic current`, backup). Then L6 Playwright e2e (Mini App/Admin). Merge/deploy
+held for a single final gate after convergence (per user).
 
 ---
