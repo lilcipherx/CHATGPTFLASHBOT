@@ -15,8 +15,8 @@ the verified change (or `—` for review-only).
 | `core/services/` billing/checkout/refunds/credits/pricing/packs/promos/loyalty/daily_bonus/referrals/gifts | ~11 | pending | L1 payments |
 | `api/routers/webhooks.py` | 1 | reviewed (discovery) | L1 payments |
 | `bot/handlers/premium.py, packs_buy.py, gift.py, promo.py` | 4 | reviewed (discovery) | L1 payments |
-| `core/services/admin_auth.py, crypto.py`, `api/admin/auth.py`, `api/admin/deps.py`, `api/deps.py` | 5 | reviewed (discovery) | L2 auth/RBAC |
-| `api/admin/*` routers (RBAC matrix) | ~24 | pending | L2 auth/RBAC |
+| `core/services/admin_auth.py, crypto.py`, `api/admin/auth.py`, `api/admin/deps.py`, `api/deps.py`, `core/config.py` | 6 | reviewed (C1/C3 dismissed fail-closed) | L2 auth/RBAC |
+| `api/admin/*` routers (RBAC matrix) | ~24 | reviewed — all guarded (test_admin_rbac_coverage) | L2 auth/RBAC |
 | `core/services/ai_routing.py, quota.py, gate.py, ratelimit.py, media_dispatch.py`, `core/ai_router/*` | ~20 | pending | L3 generation |
 | `workers/*` (ARQ tasks + beat) | 16 | pending | L3 generation |
 | `core/db.py`, `core/models/*`, `migrations/versions/*` | ~46 | reviewed head/drift only | L4 database |

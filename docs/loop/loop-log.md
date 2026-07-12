@@ -88,8 +88,24 @@ Zero-trust re-verification of the money-critical idempotency/atomicity/refund co
   claim (rowcount-0 = already refunded). CONFIRMED race-safe (worker vs stuck-job sweep).
 Verdict: no P0/P1 in the payment idempotency/refund core. Claims match tests.
 
+---
+
+## Loop L2 — auth / RBAC / secrets (partial, candidate findings)
+
+Resolved the three concrete auth candidates from Loop 0, all DISMISSED as fail-closed after
+reading the actual guard code (not the docs):
+- C1 dev-auth bypass — gated on `is_public_deploy` (true on any webhook/PUBLIC_DEPLOY prod);
+  fail-closed. Only an explicit operator misconfig (documented) reopens it. No fix.
+- C2 admin RBAC — added `tests/test_admin_rbac_coverage.py`: introspects every `/api/admin/*`
+  route and asserts `current_admin`/`current_admin_enrolling` in its dependency tree (except
+  `/auth/login`, `/auth/refresh`). PASSES → no unguarded admin endpoint. Durable guard.
+- C3 JWT default secret — `_require_prod_secret()` runs at import via `settings =
+  get_settings()`; public deploy with the placeholder secret hard-fails at boot. No fix.
+
+Commands: `pytest tests/test_admin_rbac_coverage.py -v` → 1 passed (introspected >20 routes).
+
 ### Next action
-Continue Domain Loop 1: promos/referrals/gifts/loyalty/subscriptions activation + external
-gateway signature/replay verification (yookassa/stripe/crypto/tribute), then L2 auth/RBAC.
+Continue Domain Loop 1: external gateway signature/replay verification (yookassa/stripe/
+crypto/tribute webhooks) — the remaining money-critical surface — then L3 generation/quotas.
 
 ---

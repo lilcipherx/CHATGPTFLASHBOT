@@ -8,31 +8,36 @@ Zero-trust: a "fixed" note requires a failing-then-passing test and a verified c
 
 ---
 
-## Open / candidate findings (from Loop 0 discovery — NOT yet root-caused or fixed)
+## Resolved candidate findings (verified — dismissed as safe, no code fix needed)
 
-These are hypotheses raised during discovery. They must be confirmed (or dismissed) in the
-relevant domain loop before any fix. Do not treat as confirmed bugs.
+### C1 (P1 candidate) — Mini App dev auth bypass reachability — DISMISSED (fail-closed)
+- Flow: `api/deps.py:79` `current_webapp_user` → `DEV_WEBAPP_USER` only when
+  `_dev_bypass_enabled()` (`api/deps.py:66`): `dev_webapp_bypass AND env in {dev,test} AND
+  NOT is_public_deploy`.
+- Verified: `is_public_deploy` (`core/config.py:219`) is true whenever `PUBLIC_DEPLOY=true`
+  OR `WEBHOOK_BASE_URL` is set — the latter is present in every process's `.env` on a real
+  webhook deploy (`docker-compose.prod.yml:78` `BOT_MODE: webhook`). So the standard prod
+  deploy has the bypass fail-closed. Residual is only an operator explicitly setting
+  `ENV=dev` + flag + polling + `PUBLIC_DEPLOY=false` in prod — a documented "hold it wrong"
+  (`.env.example:25-26`), not a code defect. No fix.
 
-### C1 (P1 candidate) — Mini App dev auth bypass reachability
-- Flow: `api/deps.py:79` `current_webapp_user` returns a fixed `DEV_WEBAPP_USER` for any
-  request lacking initData when `DEV_WEBAPP_BYPASS` is on AND `ENV in {dev,test}` AND not
-  public deploy (`_dev_bypass_enabled`).
-- Concern: a prod host misconfigured with `ENV=dev` + flag on would authenticate everyone.
-- To verify (auth domain): confirm `is_public_deploy` / `_dev_bypass_enabled` is fail-closed
-  and cannot be reached under the actual prod compose env. Add a regression test asserting
-  bypass is refused whenever `is_public_deploy` is true regardless of ENV/flag.
+### C2 (P1 candidate) — every mutating admin route must be RBAC-guarded — DISMISSED + GUARDED
+- Verified via NEW introspection test `tests/test_admin_rbac_coverage.py`: walks `app.routes`,
+  and for every `/api/admin/*` route except the two intentionally-public auth endpoints
+  (`/auth/login`, `/auth/refresh`) asserts `current_admin` or `current_admin_enrolling` is in
+  the route's dependency tree. `require_role(...)` → `current_admin` → `ip_allowlisted`, so
+  this covers IP allow-list + JWT auth + RBAC in one assertion. **Test PASSES** — no unguarded
+  admin endpoint exists at `bb44014`. The test is a durable regression guard against a future
+  endpoint forgetting the dependency.
 
-### C2 (P1 candidate) — Every mutating admin route must declare require_role/current_admin
-- Flow: `admin/src/App.tsx` RBAC (`RoleGuard`) is client-side UX only; backend is authoritative.
-- To verify (auth/RBAC domain): enumerate all routes under `api/admin/*` and assert each
-  mutating endpoint has `Depends(current_admin)` + `require_role(...)`. Build a test that
-  introspects the router and fails on any unguarded mutation.
-
-### C3 (P2 candidate) — JWT default secret shippability
-- Flow: `api/admin/auth.py:449` treats `admin_jwt_secret == "change-me-in-prod"` as a
-  security-score signal; `core/config.py:234` guard rejects the placeholder on public deploy.
-- To verify (auth domain): confirm the boot guard actually aborts startup (not just warns)
-  under public deploy, and that staging/prod compose supplies a real secret.
+### C3 (P2 candidate) — JWT default secret shippability — DISMISSED (boot abort)
+- Verified: `core/config.py:343 get_settings()` calls `_require_prod_secret()` and
+  `settings = get_settings()` runs at module import (process startup). On any public deploy
+  (`is_public_deploy`), `admin_jwt_secret == "change-me-in-prod"` raises `RuntimeError` →
+  process fails to boot (`core/config.py:234`). Same guard also hard-fails empty `enc_secret`,
+  `minioadmin` S3 creds, wildcard CORS, `memory://` redis, SQLite DB, missing IP
+  allowlist/metrics token, and Stripe-secret-without-webhook-secret. No fix. (Existing tests:
+  `tests/test_audit_fixes.py:156-198`.)
 
 ### C4 (P3) — SPA dev-dependency vulnerabilities (esbuild <=0.24.2)
 - Flow: `miniapp` + `admin` each report 5 npm advisories (3 moderate / 1 high / 1 critical),
