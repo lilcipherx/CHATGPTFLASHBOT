@@ -14,7 +14,12 @@ permissions:
 
 jobs:
   image:
-    needs: [lint, test]  # FIX: AUDIT-139 - gate image build on CI
+    # NOTE: `needs:` may only reference jobs in THIS workflow — the earlier
+    # `needs: [lint, test]` pointed at ci.yml jobs, which makes the workflow invalid
+    # (GitHub can't resolve them) and the run fails at startup. CI already gates the
+    # merge into `main` via branch protection, and release tags are cut from `main`,
+    # so the image built here is always from CI-green code. (To hard-gate on the CI
+    # run itself, switch to a `workflow_run` trigger.)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
