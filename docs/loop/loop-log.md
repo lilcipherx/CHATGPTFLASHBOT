@@ -189,10 +189,29 @@ Additive indexes only; idempotent + reversible (`DROP INDEX CONCURRENTLY` downgr
 documents backup, INVALID-index recovery, and an app-only rollback (old app runs fine against
 the indexed schema — no schema downgrade needed).
 
+---
+
+## Loop L7 — security / ops / CI / AWS
+
+### F1 CI remediation (no bypass)
+Root cause CONFIRMED account-level (see ci-remediation.md): 0-jobs startup_failure across ALL
+workflows incl. Dependabot's internal one → not a `ci.yml` bug (that couldn't break Dependabot);
+private repo, branch protection unavailable on-plan. Not code-fixable — owner must restore Actions
+(billing / public / self-hosted). Delivered: `docs/loop/ci-remediation.md` (root cause + 3 owner
+fixes + verify steps) and `scripts/ci_local.sh` — a faithful, non-bypassing local mirror of the
+ci.yml gate set (syntax-checked; its individual gates all ran green this loop).
+
+### Read-only AWS inventory (ssh flashbot, no changes) — see aws-inventory.md
+Verified: directory-swap deploy (non-git), prod `alembic current = 0042` (deploy applies exactly
+0043+0044), all containers Up/healthy, backups run + checksummed (`aiobot-*.sql.gz`). Security
+positives: only 22/80/443 on 0.0.0.0, api on 127.0.0.1:8000, NO internal ports exposed (old audit
+P0 not reproduced); `ENV=prod` + `WEBHOOK_BASE_URL` set → `is_public_deploy=True` → boot guards
+active → **empirically confirms L2 C1/C3 safe on the real prod**. Minor P3: some containers still
+on `:latest` (align on next --force-recreate); `ufw` inactive (SG is perimeter).
+
 ### Next action
-L7 infra: (1) F1 CI remediation — precise root cause + a non-bypassing local CI-mirror gate +
-owner runbook; (2) read-only AWS inventory via `ssh flashbot` (deployed SHA, container health,
-ports/SG, `alembic current`, backup). Then L6 Playwright e2e (Mini App/Admin). Merge/deploy
-held for a single final gate after convergence (per user).
+L6 Playwright e2e (Mini App real browser scenarios; Admin has no e2e harness). Then converge:
+full local gate rerun green → single final merge/deploy gate (held per user). Merge of PR #3
+still requires human review (harness) + owner CI restore for a real gate.
 
 ---

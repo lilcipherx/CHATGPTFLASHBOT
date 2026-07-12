@@ -15,24 +15,30 @@ Go/no-go gates for staging + production. A box is checked ONLY with verified evi
 - [ ] `docker compose build` — not yet run locally (ops domain)
 - [ ] mypy — 306 errors (non-blocking); tracked as debt
 
-## CI / GitHub (to verify in ops domain)
-- [ ] GitHub Actions billing restored + CI green on `claude/loop-engineering` PR
-- [ ] Branch protection on `main` requires CI checks (lint/test/migrations/frontend/security/docker)
-- [ ] Release workflow builds+pushes GHCR image on tag
+## CI / GitHub (finding F1 — see ci-remediation.md)
+- [ ] **BLOCKER (owner): GitHub Actions restored** — currently 0-jobs startup_failure (billing/
+      minutes on a private repo). Fix: restore Actions billing / make repo public / self-hosted runner.
+- [x] Compensating control: `scripts/ci_local.sh` mirrors the ci.yml gate set locally (this loop ran all green)
+- [ ] Branch protection on `main` requires CI checks — UNAVAILABLE on the current plan (private + free)
+- [ ] Release workflow builds+pushes GHCR image on tag (untested — Actions down)
 
-## Security posture (to verify in security/ops domain)
-- [ ] AWS Security Group does NOT expose 5432/6379/9000/9001/20128/8000 publicly
-- [ ] `.env` file perms 0600 on host (not 0755)
-- [ ] Admin panel IP allowlist enforced at Caddy edge + app
-- [ ] `admin_jwt_secret` is a real secret in prod (not `change-me-in-prod`)
-- [ ] SPA dev-dep esbuild advisory triaged (dev-only) or bumped
+## Security posture (verified read-only via ssh flashbot)
+- [x] Internal ports NOT publicly bound — only 22/80/443 on 0.0.0.0; api on 127.0.0.1:8000;
+      no 5432/6379/9000/9001/20128 exposed (old P0 not reproduced)
+- [x] `is_public_deploy = True` on prod (WEBHOOK_BASE_URL set) → boot guards active → `admin_jwt_secret`
+      is real (api wouldn't boot on the default) and admin IP allowlist is enforced at boot
+- [ ] `ufw` inactive (perimeter = AWS SG) — optional defense-in-depth (host-only, owner's call)
+- [ ] `.env` file perms 0600 on host — not re-checked this loop
+- [x] SPA dev-dep esbuild advisory triaged: dev-only (vite/vitest), prod build unaffected — accept (P3)
 
-## AWS deploy (to verify read-only via `ssh flashbot`, ops domain)
-- [ ] Deployed SHA == merged `origin/main` SHA
-- [ ] Containers healthy; images digest-pinned (not `:latest`)
-- [ ] `alembic current` == `0042_search_model`
-- [ ] Backup job runs + restore drill passes
-- [ ] Rollback runbook validated (previous image tag available)
+## AWS deploy (verified read-only via `ssh flashbot`)
+- [ ] Deployed SHA == merged `origin/main` — pending (deploy after merge)
+- [x] Containers healthy (postgres/redis/api/omniroute healthy; all Up)
+- [~] Images: live compose digest-pinned, but pgbouncer/minio/omniroute containers still on `:latest`
+      (predate pinned compose) — align on next `--force-recreate` deploy (P3)
+- [x] `alembic current` == `0042_search_model` (so deploy applies exactly 0043 + 0044)
+- [x] Backup job runs + checksummed dumps (`aiobot-*.sql.gz`); restore DRILL not exercised this loop
+- [x] Rollback anchors present: `.predeploy.*` / `.old.*` dir snapshots + backup dumps (see migration-runbook.md)
 
 ## Rollback readiness
 - [ ] Previous good image tag/SHA recorded before deploy
