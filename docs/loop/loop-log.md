@@ -104,8 +104,38 @@ reading the actual guard code (not the docs):
 
 Commands: `pytest tests/test_admin_rbac_coverage.py -v` → 1 passed (introspected >20 routes).
 
-### Next action
-Continue Domain Loop 1: external gateway signature/replay verification (yookassa/stripe/
-crypto/tribute webhooks) — the remaining money-critical surface — then L3 generation/quotas.
+### L1 gateway webhook signature verification — verified clean
+- `crypto_gw.verify_webhook`: HMAC-SHA256 over body with sha256(token) key, constant-time
+  compare, raise `PaymentError` on mismatch (→ 200 ack, no apply). Fail-closed.
+- `tribute_gw.verify_webhook`: HMAC-SHA256 + constant-time compare; ALSO inert (returns None)
+  until `TRIBUTE_API_VERIFIED=true` — refuses to credit on an unverified mapping. Fail-safe.
+- `yookassa` (unsigned): source-IP allowlist, fail-closed on public deploy when unset
+  (`webhooks.py:105-125`), XFF right-most hop behind Caddy.
+- `stripe`: SDK `construct_event` + boot guard requiring `STRIPE_WEBHOOK_SECRET` when
+  `STRIPE_SECRET` set (`config.py:303`).
+Verdict: no forgeable webhook path. L1 payments domain closed — no P0/P1.
+
+---
+
+## Loop L3 — generation / quotas / idempotency (partial)
+
+Verified the money-adjacent generation charge path (`api/routers/miniapp.py:effect_generate`
+/ `video_generate`), the highest-risk L3 surface:
+- Per-submit idempotency: Redis SETNX `first_seen` on a client `idempotency_key` (fail-open),
+  duplicate double-tap → 409, no second job/charge; key released on any pre-commit failure.
+- Atomic charge: `try_consume*/try_consume(commit=False)` holds the balance row lock, job row
+  added in the SAME transaction, single `session.commit()` lands charge+job atomically; any
+  pre-commit failure rolls back the charge (balance untouched).
+- Post-commit `_enqueue_or_refund`: enqueue failure → `refund_job` (race-safe, verified in L1);
+  a crash between commit and enqueue is recovered by the `sweep_stuck_jobs` cron.
+- Balance charge under `session.refresh(user, with_for_update=True)` (`quota.consume_text:169`).
+Verdict: charge atomicity + idempotency CONFIRMED correct. No P0/P1.
+
+### Next action (blocked on user)
+GitHub phase gated on `gh auth login` (gh 2.96.0 installed, not yet authenticated). Once
+authenticated: push branch → open PR → CI → merge → controlled AWS deploy (authorized:
+"deploy after merge"). Remaining local L3–L7 deep review (workers idempotency, DB locks/
+indexes/pools, Mini App/Admin Playwright, security/ops + read-only AWS inventory) continues
+in parallel.
 
 ---
