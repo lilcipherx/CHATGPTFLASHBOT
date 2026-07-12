@@ -543,3 +543,28 @@ restart each during the redis recreation window, then stable); omniroute healthy
 session log during validation — recommend rotating `POSTGRES_PASSWORD` + `DATABASE_URL` as a
 precaution. Defense-in-depth now holds even if the AWS SG is mis-set, but SG verification
 (only 22/80/443 inbound) is still recommended.
+
+---
+
+## Improvement workstream #2 — supply-chain pinning — DONE (2026-07-12, commit 43e3ae2)
+
+- **GitHub Actions SHA-pinned** in `ci.yml` + `release.yml`: `actions/checkout@34e1148…`,
+  `actions/setup-python@a26af69…`, `actions/setup-node@49933ea…`, `actions/upload-artifact@ea165f8…`,
+  `docker/setup-buildx-action@8d2750c…`, `docker/build-push-action@10e90e3…`,
+  `docker/login-action@c94ce9f…`, `docker/metadata-action@c299e40…` (each keeps a `# vX` comment).
+  A moved tag can no longer inject code into CI.
+- **All external images digest-pinned** to the currently-running, tested images:
+  postgres/backup `@sha256:e013e867…`, redis `@sha256:6ab0b6e7…`, minio `@sha256:14cea493…`,
+  omniroute `@sha256:ceae8d9d…`, pgbouncer `@sha256:4c1ca296…`, caddy `@sha256:5f5c8640…`.
+  `docker compose config -q` validates; NOT force-recreated (running images already match the
+  digests, so the pin is latent until the next deploy — zero downtime now).
+
+**Additional finding (logged, not fixed here):** `release.yml` has `needs: [lint, test]`, but
+those jobs live in `ci.yml`, not `release.yml` — a job cannot depend on a job from another
+workflow, so the release workflow is misconfigured (contributes to its failed status). Fix by
+either removing the `needs` or gating on the CI workflow via `workflow_run`. Deferred (CI is
+account-billing-blocked; no impact until Actions runs again).
+
+**Not done (lower priority, documented):** Dockerfile base `python:3.12-slim` is not digest-pinned
+— pinning would force a rebuild against a base newer than the running image; safer to pin during a
+planned rebuild window with a captured digest.
