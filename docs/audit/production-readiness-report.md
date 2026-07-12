@@ -701,3 +701,28 @@ This pass exercised them directly (read-only on prod; no prod mutation, no deplo
 "Requires staging/prod" is now **done and green**. No code defect (P0–P2) surfaced in this
 pass; no fix was required, so no code commit accompanies it. `pip-audit` + `docker build`
 remain CI-only on this host. Money-flow e2e (U-1) and Tribute HMAC still require staging.
+
+### Observability posture — INTENTIONAL (owner decision, 2026-07-12)
+
+Verified on the host: the `docker-compose.monitoring.yml` stack (Prometheus / Alertmanager /
+Grafana / Loki / Promtail / postgres-,redis-,node-exporter) is **not deployed** — the running
+compose project is `chatgptflashbot` with only `docker-compose.yml + docker-compose.prod.yml`
+(11 app containers; zero monitoring containers, none even stopped). Corollary facts confirmed:
+`/metrics` returns **403 without a token** on this public deploy (`METRICS_TOKEN` is set in
+`.env`), and `monitoring/prometheus.yml` ships that auth header commented out — so the stack
+would need `METRICS_TOKEN` injected before the `aibot-api` scrape could succeed.
+
+**This is deliberate, not a defect.** The operator monitors the system through the **admin
+panel** and does not want a separate Telegram alert bot / Prometheus-Alertmanager pipeline.
+Recorded here so a future auditor does not re-flag it. The alert-rule files (`alerts.yml`,
+`alertmanager.yml`) and their intentionally-disabled rules (BotDown / Api5xx / PaymentFailure /
+AIProvider429 — each disabled *with* a documented reason because no emitter exists) are
+internally consistent and remain valid if the stack is ever brought up.
+
+**One honest caveat (accepted by owner):** the admin panel is served through the same `api`
+container/host, so a full API/host outage takes the panel down with it — an out-of-band,
+push-based alert (the role Alertmanager would play) has no substitute in the current setup.
+To enable later: set `ALERT_BOT_TOKEN` / `ALERT_CHAT_ID` / `GRAFANA_ADMIN_PASSWORD`, inject
+`METRICS_TOKEN` into `prometheus.yml`, then
+`docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d` (bind Grafana
+`3000` to `127.0.0.1`).
