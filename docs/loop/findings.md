@@ -58,6 +58,25 @@ Zero-trust: a "fixed" note requires a failing-then-passing test and a verified c
 
 ## Confirmed findings (root-caused + failing test + fix + verified commit)
 
-_None yet. Loop 0 established the baseline; no P0/P1 confirmed._
+### F1 (P1 ops) — GitHub Actions CI is non-functional (0 jobs / startup_failure)
+- Flow: `.github/workflows/ci.yml` + `release.yml` gate the release process ("merge to main is
+  CI-green"; `release.yml` relies on branch protection to enforce it).
+- Verified (zero-trust, via `gh` at bb44014): EVERY recent Actions run — including Dependabot's
+  — is `startup_failure` at 0s. `gh api .../actions/runs/<id>/jobs` → `total_count = 0` (no job
+  ever spawns). The repo is **private** (`.private = true`) and branch protection returns HTTP
+  403 "Upgrade to GitHub Pro or make this repository public" → **no branch protection is or can
+  be configured on this plan**. 0-jobs + all-runs-fail is the signature of exhausted/blocked
+  Actions minutes on a private free-plan repo, NOT a workflow-file bug (the YAML parses and is
+  schema-valid; a real parse error would still create a run with a failed setup job).
+- Impact: the CI gate the release/merge process assumes does not exist. Any "CI-green" claim in
+  older audit docs is false. Merges to `main` are ungated by CI.
+- Root cause: account/plan level (Actions minutes/billing on a private repo) — NOT fixable in
+  code. Remediation is the owner's decision: (a) restore Actions spending limit/minutes, (b)
+  make the repo public (enables free Actions + branch protection), or (c) formally adopt
+  local-gate verification as the gate.
+- Compensating control applied THIS loop: the full CI-equivalent gate set was run locally and is
+  green (ruff, pytest 905, coverage 68%, bandit, alembic+drift, miniapp/admin vitest+tsc+build,
+  miniapp e2e). Only `pip-audit` (venv-blocked locally) and `docker build` were not run locally.
+- Remaining risk: until billing/public/policy is resolved, no automated gate runs on push. P1.
 
 ---
