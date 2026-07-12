@@ -62,7 +62,7 @@ jobs:
                  --cov-report=xml --cov-report=term-missing -q
       - name: Coverage floor (ratchet — raise over time toward 70 global / 85 critical)
         run: |
-          python -m coverage report --fail-under=65
+          python -m coverage report --fail-under=67  # ratchet: raised 65→67 (actual 67.96%)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
