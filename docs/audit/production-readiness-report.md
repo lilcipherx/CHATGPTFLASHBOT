@@ -496,3 +496,22 @@ Verified-correct (no change):
   checks. With CI unable to start, there are no green checks, so merging is withheld
   pending the user resolving Actions (enable Actions / approve first run / runners /
   billing) — after which CI can be re-run and, if green, the merge completed.
+
+---
+
+## Bot exhaustive functional verification (2026-07-12, sub-project #5)
+
+Line-by-line read of **all 28 `bot/handlers/*.py` files** covering **118 entrypoints**
+(28 commands + message + callback + inline handlers). Verification axes per handler:
+ban/section/premium gate, input validation, atomic charge/refund, moderation-before-AI,
+FSM state isolation, idempotency, HTML escaping, callback_data parse safety.
+
+**Result: 0 new defects.** The bot is uniformly hardened (Phase 6 fixes verified in place):
+- Payments (`premium`/`packs_buy`/`gift`): idempotent activation on `charge_id`, refund-on-failed-grant, narrowed `successful_payment` filter (multi-router safety), duplicate-delivery re-fetch, single-use promo consumed once.
+- Generation (`chat`/`photo`/`video`/`kling`/`music_gen`/`search`/`documents`): atomic charge+job (`commit=False`→single commit), refund on ANY provider exception carrying `was_premium`, partial-variant refund, seed bounds (0…2³¹−1), empty-result guard, streaming `interrupted` flag.
+- Moderation precedes every text→AI path (chat/search/photo/video/music/documents/inline/vision/role).
+- Guards: `html.escape` on user/admin text, `try/except` on every `callback_data` split, Redis fail-open, correct per-bot username under multi-bot, ban re-check on middleware-bypassing inline path.
+
+Handlers reviewed: account, bonus, chat, contests, context, documents, gift, groups,
+inline, invite, kling, links, menus, misc, model, music_gen, packs_buy, photo, premium,
+promo, roles, search, settings, start, support, video (+ __init__).
