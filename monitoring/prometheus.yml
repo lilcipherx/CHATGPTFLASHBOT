@@ -19,14 +19,19 @@ scrape_configs:
   # (silently → no aibot_* metrics, ApiDown never fires) unless you set the token
   # here. Prometheus does NOT expand env vars in this file, so you must inject the
   # real value at deploy time (this file is mounted read-only into the container).
-  # Set it to the SAME value as METRICS_TOKEN in .env, e.g. via your deploy tooling:
-  #   params:
-  #     token: ["<METRICS_TOKEN value>"]
+  # Set it to the SAME value as METRICS_TOKEN in .env, e.g. via your deploy tooling.
+  # PREFERRED: send it as an Authorization: Bearer header so the token never lands in
+  # the scrape URL / access logs (the query-param form below still works but is legacy):
+  #   authorization:
+  #     credentials: "<METRICS_TOKEN value>"
   # Do NOT commit the real token to the repo.
   - job_name: aibot-api
     metrics_path: /metrics
     static_configs:
       - targets: ["api:8000"]
+    # authorization:
+    #   credentials: "REPLACE_AT_DEPLOY_WITH_METRICS_TOKEN"
+    # Legacy query-param form (leaks into logs — prefer the header above):
     # params:
     #   token: ["REPLACE_AT_DEPLOY_WITH_METRICS_TOKEN"]
 

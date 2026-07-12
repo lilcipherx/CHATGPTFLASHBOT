@@ -2,6 +2,7 @@
 WebApp initData (HMAC-verified in deps)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 
@@ -47,6 +48,13 @@ MAX_UPLOAD = 30 * 1024 * 1024  # 30 MB per photo (§13.3)
 # Cap the COMBINED size of a multi-photo effect request so one call can't pin the
 # API worker's memory by uploading many max-size photos at once (§13.3).
 MAX_UPLOAD_TOTAL = 60 * 1024 * 1024
+
+# FIX: AUDIT-U3 - window (seconds) for collapsing a double-tap into one generation.
+# A double-submit (DOM Generate button + Telegram MainButton both fire run()) lands
+# within milliseconds; 8s comfortably covers it while barely affecting a user who
+# deliberately re-runs the SAME effect+photo+prompt. The key is released on any
+# pre-commit failure, so a genuine retry after an error is never locked out.
+_GEN_DEDUP_TTL = 8
 
 # Persisted user uploads (selfies for img2img effects). Stored in S3/MinIO when
 # configured (so every API replica + the worker + external providers can fetch
@@ -627,6 +635,7 @@ async def effect_generate(
     model: str = Form(...),
     params: str = Form("{}"),
     prompt: str = Form(""),
+    idempotency_key: str = Form(""),  # FIX: AUDIT-U3 - per-submit-intent dedup token
     photos: list[UploadFile] = File(default=[]),
     tg=Depends(current_webapp_user),
     session: AsyncSession = Depends(get_session),
@@ -690,6 +699,42 @@ async def effect_generate(
 
     cost = _effect_price(kind, row, model, cfg)
 
+    # FIX: AUDIT-U3 - idempotent submit guard. The Mini App wires run() to BOTH the DOM
+    # Generate button and the Telegram MainButton, and the client phase guard is not
+    # synchronous, so a fast double-tap can fire two requests. The client stamps ONE
+    # ``idempotency_key`` per submit intent (stable across the double-tap twins), and
+    # the backend admits only the first: the duplicate gets 409, no second job/charge.
+    # Keying on the client token — NOT on request content — is deliberate: a user is
+    # allowed to generate the SAME effect+photo+prompt again (e.g. to consume a daily
+    # sponsored-free cap), which a content hash would wrongly block. When no token is
+    # sent (older clients) the guard is skipped, so behaviour is unchanged. first_seen
+    # is an atomic SETNX that fails OPEN on Redis down (a blip must never block a real
+    # generation). Released on any pre-commit failure so a genuine retry isn't locked
+    # out for the window.
+    from core.redis_client import first_seen, redis_client
+    # isinstance guard: when the endpoint is invoked directly (unit tests) rather than
+    # over HTTP, an unpassed Form() default arrives as the sentinel object, not a str —
+    # treat that (and any non-str) as "no idempotency key".
+    idem = (idempotency_key if isinstance(idempotency_key, str) else "").strip()[:100]
+    dedup_key = (
+        "miniapp:gen:dedup:" + hashlib.sha256(
+            f"{user.user_id}|{idem}".encode()
+        ).hexdigest()
+    ) if idem else None
+    if dedup_key is not None and not await first_seen(dedup_key, _GEN_DEDUP_TTL):
+        raise HTTPException(status_code=409, detail="duplicate submit — already generating")
+
+    async def _release_dedup() -> None:
+        """Free the dedup key so a real retry after a pre-commit failure isn't blocked
+        (the double-tap twin was already rejected by the SETNX above). No-op when the
+        client sent no idempotency key."""
+        if dedup_key is None:
+            return
+        try:
+            await redis_client.delete(dedup_key)
+        except Exception:  # noqa: BLE001 — best-effort release
+            pass
+
     # Charge WITHOUT committing yet (commit=False), then commit the charge together
     # with the job row in ONE transaction below — so a hard crash between them can
     # never burn a free slot / 🪙 with no job to show for it. On any failure before
@@ -713,6 +758,7 @@ async def effect_generate(
             pack_type, cost = None, 0
         elif not await credits.try_consume(session, user, cost, commit=False):
             await session.rollback()
+            await _release_dedup()
             raise HTTPException(status_code=402, detail="not enough credits — top up ✨")
 
     # Persist the inputs while the charge is still uncommitted (it holds its row
@@ -723,6 +769,7 @@ async def effect_generate(
         ]
     except Exception as exc:  # noqa: BLE001 — storage/network failure
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=503, detail="upload failed") from exc
 
     job_params = {**cfg, "prompt": final_prompt, "preset_id": effect_id,
@@ -750,6 +797,7 @@ async def effect_generate(
         await session.commit()  # charge + job land atomically
     except Exception as exc:  # noqa: BLE001 — never keep a charge for a job that wasn't created
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=503, detail="could not start generation") from exc
 
     worker = "process_photoeffect_job" if kind == "photo" else "process_video_job"
@@ -821,6 +869,7 @@ async def free_model_generate(
     model: str,
     params: str = Form("{}"),
     prompt: str = Form(""),
+    idempotency_key: str = Form(""),  # FIX: AUDIT-U3 - per-submit-intent dedup token
     photos: list[UploadFile] = File(default=[]),
     tg=Depends(current_webapp_user),
     session: AsyncSession = Depends(get_session),
@@ -870,6 +919,28 @@ async def free_model_generate(
 
     cost = _compute_cost(kind, model, cfg)
 
+    # FIX: AUDIT-U3 - same idempotent-submit guard as effect_generate (see the long note
+    # there): admit only the first request carrying a given client token, so a double-tap
+    # twin can't charge + queue the free-model generation twice. Skipped when no token is
+    # sent; fails OPEN on Redis down; released on any pre-commit failure.
+    from core.redis_client import first_seen, redis_client
+    idem = (idempotency_key if isinstance(idempotency_key, str) else "").strip()[:100]
+    dedup_key = (
+        "miniapp:gen:dedup:" + hashlib.sha256(
+            f"{user.user_id}|{idem}".encode()
+        ).hexdigest()
+    ) if idem else None
+    if dedup_key is not None and not await first_seen(dedup_key, _GEN_DEDUP_TTL):
+        raise HTTPException(status_code=409, detail="duplicate submit — already generating")
+
+    async def _release_dedup() -> None:
+        if dedup_key is None:
+            return
+        try:
+            await redis_client.delete(dedup_key)
+        except Exception:  # noqa: BLE001 — best-effort release
+            pass
+
     # Charge WITHOUT committing (same atomic charge+job pattern as effect_generate,
     # minus sponsored — a free-choice model is a normal paid generation). Precedence:
     # a photo model's free weekly slot → else ✨ credits.
@@ -881,6 +952,7 @@ async def free_model_generate(
         pack_type, cost = None, 0
     elif not await credits.try_consume(session, user, cost, commit=False):
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=402, detail="not enough credits — top up ✨")
 
     try:
@@ -889,6 +961,7 @@ async def free_model_generate(
         ]
     except Exception as exc:  # noqa: BLE001 — storage/network failure
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=503, detail="upload failed") from exc
 
     # `free_model` stands in for `preset_id`: it marks the job as an in-app Mini App
@@ -912,6 +985,7 @@ async def free_model_generate(
         await session.commit()
     except Exception as exc:  # noqa: BLE001
         await session.rollback()
+        await _release_dedup()
         raise HTTPException(status_code=503, detail="could not start generation") from exc
 
     worker = "process_photoeffect_job" if kind == "photo" else "process_video_job"

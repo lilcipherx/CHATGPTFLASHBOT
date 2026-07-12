@@ -35,21 +35,28 @@ async def refund_stars(
     (accurate — the user is still owed) instead of a false ``refunded``, so manual
     reconciliation or a retry can re-issue it. Idempotent across the per-service worker
     and the stuck-job sweep via ``mark_stars_refunded`` (paid→refunded at most once)."""
-    from core.bot_client import get_bot
-    from core.i18n import t
-    from core.services.billing import mark_stars_refunded, peek_refundable_stars_tx
-
     # FIX: AUDIT-5 - lock the Transaction row BEFORE peek+refund to prevent
     # concurrent double-refund race (worker + stuck-job sweep)
     from sqlalchemy import select
+
+    from core.bot_client import get_bot
+    from core.i18n import t
     from core.models import Transaction
+    from core.services.billing import mark_stars_refunded, peek_refundable_stars_tx
     cid = await peek_refundable_stars_tx(session, user_id, product, charge_id)
     if not cid:
         return False  # nothing paid to refund (or already refunded — idempotent no-op)
     # Lock the tx row for the duration of the money-refund call
-    await session.execute(
+    locked_tx = (await session.execute(
         select(Transaction).where(Transaction.gateway_tx_id == cid).with_for_update()
-    )
+    )).scalar_one_or_none()
+    # FIX: AUDIT-G2 - peek_refundable_stars_tx ran BEFORE this lock, so a concurrent
+    # refunder (per-service worker + stuck-job sweep) may have already refunded this
+    # exact charge while we waited on FOR UPDATE. Re-check the status under the lock;
+    # if it is no longer 'paid' the money is already back — never issue a SECOND real
+    # Telegram refund. (peek alone can't close this: the window is between peek and lock.)
+    if locked_tx is None or locked_tx.status != "paid":
+        return False
     bot = get_bot()
     try:
         await bot.refund_star_payment(user_id=user_id, telegram_payment_charge_id=cid)
@@ -139,7 +146,9 @@ async def refund_job(session: AsyncSession, job) -> None:
         # so the stuck-job sweep stops re-picking this job on every run.
         if ok:
             from datetime import UTC, datetime
+
             from sqlalchemy import update
+
             from core.models import GenerationJob
             await session.execute(
                 update(GenerationJob)

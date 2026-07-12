@@ -6,14 +6,14 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime, timedelta
 
+import pytest_asyncio
+
 import bot.handlers.chat as chat
 from core.db import SessionFactory, engine
 from core.models import Base
 from core.services import feature_flags
 from core.services.feature_flags import default_flags
 from core.services.users import get_or_create_user
-
-import pytest_asyncio
 
 
 @pytest_asyncio.fixture(autouse=True)

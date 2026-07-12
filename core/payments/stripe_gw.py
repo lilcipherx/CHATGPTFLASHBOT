@@ -24,6 +24,7 @@ class StripeProvider:
         # FIX: AUDIT12-18 - wrap ALL sync stripe.* calls in asyncio.to_thread
         # so they don't block the event loop.
         import asyncio
+
         import stripe
 
         stripe.api_key = settings.stripe_secret
@@ -74,6 +75,7 @@ class StripeProvider:
         if not self.is_available():
             raise PaymentError("stripe not configured")
         import asyncio
+
         import stripe
 
         stripe.api_key = settings.stripe_secret
@@ -105,6 +107,7 @@ class StripeProvider:
         if not self.is_available():
             raise PaymentError("stripe not configured")
         import asyncio
+
         import stripe
 
         stripe.api_key = settings.stripe_secret
@@ -133,6 +136,15 @@ class StripeProvider:
     def verify_webhook(self, headers: dict, body: bytes) -> PaymentEvent | None:
         import stripe
 
+        # FIX: AUDIT-P1 (P0) - fail CLOSED when the webhook secret is unset. With an
+        # empty secret, stripe.Webhook.construct_event verifies against an empty HMAC
+        # key, which an attacker can reproduce to forge a `paid` event and credit
+        # themselves for free. Refuse rather than trust an unverifiable signature —
+        # mirrors YooKassa's fail-closed behaviour when unconfigured.
+        if not settings.stripe_webhook_secret:
+            raise PaymentError(
+                "stripe webhook secret not configured — refusing unverifiable event"
+            )
         sig = headers.get("stripe-signature") or headers.get("Stripe-Signature", "")
         try:
             event = stripe.Webhook.construct_event(

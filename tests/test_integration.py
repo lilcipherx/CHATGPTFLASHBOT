@@ -261,6 +261,37 @@ async def test_stars_refund_failure_leaves_tx_paid(monkeypatch):
         assert bot.refunded == []
 
 
+async def test_stars_refund_rechecks_status_under_lock(monkeypatch):
+    """AUDIT-G2 (P1): peek_refundable_stars_tx runs BEFORE the FOR UPDATE lock, so two
+    racers (the per-service worker + the stuck-job sweep) can both read 'paid' and both
+    reach the real bot.refund_star_payment — issuing a DOUBLE real Telegram refund for
+    the same charge. After taking the lock, refund_stars must re-check the tx is still
+    'paid' and skip the external refund otherwise."""
+    from core.models import Transaction, User
+    from core.services.refunds import refund_stars
+
+    bot = _FakeBot()
+    monkeypatch.setattr("core.bot_client.get_bot", lambda: bot)
+
+    # Simulate the race window: peek returns the charge id even though a concurrent
+    # refunder already flipped the tx to 'refunded' while we waited on the lock.
+    async def _peek(*a, **k):
+        return "charge_race"
+
+    monkeypatch.setattr("core.services.billing.peek_refundable_stars_tx", _peek)
+
+    async with SessionFactory() as s:
+        s.add(User(user_id=1040, language_code="ru"))
+        s.add(Transaction(user_id=1040, product="avatar", amount=400, currency="stars",
+                          gateway="stars", gateway_tx_id="charge_race", status="refunded"))
+        await s.commit()
+
+        ok = await refund_stars(s, 1040, "avatar", charge_id="charge_race")
+        assert ok is False
+        assert bot.refunded == [], (
+            "issued a second real Telegram refund for an already-refunded charge")
+
+
 async def test_avatar_worker_refunds_exact_charge(monkeypatch):
     # The avatar worker (no provider yet) refunds the exact Stars charge the job paid
     # for and marks the job failed.

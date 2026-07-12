@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.admin.deps import require_role  # FIX: F21 - RBAC for /health/providers
 from core.config import settings
 from core.db import get_session
 from core.models import AdminUser, GenerationJob, User
-from api.admin.deps import require_role  # FIX: F21 - RBAC for /health/providers
 
 router = APIRouter(tags=["health"])
 
@@ -82,26 +82,39 @@ async def providers_health(
 async def metrics(
     token: str = "",
     x_metrics_token: str = Header(default=""),
+    authorization: str = Header(default=""),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Minimal Prometheus exposition — scrape target for Grafana dashboards.
 
-    When METRICS_TOKEN is configured, the scraper must present it (query ?token=
-    or X-Metrics-Token header) so user counts aren't world-readable.
+    When METRICS_TOKEN is configured, the scraper must present it via ANY of:
+      * ``Authorization: Bearer <token>`` header  (preferred — never hits the URL)
+      * ``X-Metrics-Token`` header
+      * ``?token=`` query param                    (legacy; leaks into access logs)
 
-    FIX: F22 - on a PUBLIC deploy (webhook mode + public base URL), the token is
-    REQUIRED: an empty METRICS_TOKEN would otherwise expose total/premium/banned
-    user counts and job stats to the public internet. Fail-closed (403) instead of
-    fail-open (no check)."""
+    FIX: AUDIT-P6 - accept the standard Authorization: Bearer header so operators can
+    keep the token OUT of the scrape URL (a query-string token lands in proxy/access
+    logs and browser history). The query param stays accepted for backward compatibility
+    with existing scraper configs; monitoring/prometheus.yml now recommends the header.
+
+    FIX: F22 / AUDIT-A2 - the token is REQUIRED on any non-local deploy, not only when
+    is_public_deploy is True. is_public_deploy is inferred from PUBLIC_DEPLOY or a
+    WEBHOOK_BASE_URL, so a prod bot running in POLLING mode (no webhook URL) evaluated
+    to False and silently served total/premium/banned user counts + job stats
+    unauthenticated. Fail closed (403) unless this is clearly a local dev/test box."""
     if not settings.metrics_token:
-        if settings.is_public_deploy:
+        if settings.is_public_deploy or settings.env not in ("dev", "test"):
             raise HTTPException(
                 status_code=403,
-                detail="METRICS_TOKEN must be set on a public deploy (configure it for the scraper)",
+                detail="METRICS_TOKEN must be set outside local dev/test "
+                       "(configure it for the scraper)",
             )
-        # Non-public dev/test: keep the historical permissive behaviour.
+        # Local dev/test only: keep the historical permissive behaviour.
     else:
-        provided = token or x_metrics_token
+        bearer = ""
+        if authorization[:7].lower() == "bearer ":
+            bearer = authorization[7:].strip()
+        provided = bearer or x_metrics_token or token
         if not hmac.compare_digest(provided, settings.metrics_token):
             raise HTTPException(status_code=403, detail="forbidden")
     from datetime import UTC, datetime

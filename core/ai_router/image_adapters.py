@@ -280,12 +280,14 @@ class BFLFlux:
                     if not poll_url.startswith("https://") or await _is_ssrf_url_async(poll_url):
                         raise ProviderUnavailable(self.name)
                     for attempt in range(60):
-                        await asyncio.sleep(2 * (1 + attempt // 10))  # FIX: AUDIT-172 - exponential backoff
+                        # FIX: AUDIT-172 - exponential backoff
+                        await asyncio.sleep(2 * (1 + attempt // 10))
                         try:
                             res = (await http.get(poll_url, headers=headers)).json() or {}
                         except Exception as exc:
                             import structlog
-                            structlog.get_logger().warning("bfl.poll_failed", attempt=attempt, error=str(exc))
+                            structlog.get_logger().warning(
+                                "bfl.poll_failed", attempt=attempt, error=str(exc))
                             continue
                         if res.get("status") == "Ready":
                             sample = (res.get("result") or {}).get("sample")

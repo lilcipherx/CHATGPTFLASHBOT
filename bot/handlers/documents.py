@@ -135,7 +135,9 @@ async def on_document(
     try:
         result = await ai_chat(user.selected_model, prompt, locale=user.language_code)
     except Exception:
-        await refund_text(session, user, cost, credits_charged=qstate.credits_charged, was_premium=qstate.is_premium)
+        await refund_text(
+            session, user, cost,
+            credits_charged=qstate.credits_charged, was_premium=qstate.is_premium)
         await wait.edit_text(_("ai.unavailable"), parse_mode=None)
         return
     # Provider down / rate-limited → return the consumed quota (mirrors chat).

@@ -79,6 +79,7 @@ async def enqueue_or_refund(session: AsyncSession, job, worker: str) -> None:
             await refund_job(session, job)
         except Exception as refund_err:  # noqa: BLE001
             import structlog
-            structlog.get_logger().error('queue.refund_failed', job_id=str(job.job_id), error=str(refund_err))
+            structlog.get_logger().error(
+                'queue.refund_failed', job_id=str(job.job_id), error=str(refund_err))
         await session.commit()
         raise QueueUnavailable() from exc

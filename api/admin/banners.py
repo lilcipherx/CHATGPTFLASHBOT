@@ -117,7 +117,8 @@ async def create_banner(
     )
     session.add(row)
     await audit(session, admin_id=admin.id, action="banner.create", target_type="banner",
-                target_id=str(row.id), after={"title": req.title}, ip=_ip(request), commit=False)  # FIX: A1
+                # FIX: A1
+                target_id=str(row.id), after={"title": req.title}, ip=_ip(request), commit=False)
     await session.commit()
     return _dict(row)
 
@@ -142,7 +143,8 @@ async def update_banner(
     row.sort_order = req.sort_order
     row.enabled = req.enabled
     await audit(session, admin_id=admin.id, action="banner.update", target_type="banner",
-    target_id=str(banner_id), after={"enabled": req.enabled}, ip=_ip(request), commit=False)  # FIX: A1
+    # FIX: A1
+    target_id=str(banner_id), after={"enabled": req.enabled}, ip=_ip(request), commit=False)
     await session.commit()
     return _dict(row)
 
@@ -196,7 +198,8 @@ async def upload_image(
         fh.write(out_bytes)
     row.image_url = f"/media/banners/{fname}"
     await audit(session, admin_id=admin.id, action="banner.image", target_type="banner",
-    target_id=str(banner_id), after={"image_url": row.image_url}, ip=_ip(request), commit=False)  # FIX: A1
+    # FIX: A1
+    target_id=str(banner_id), after={"image_url": row.image_url}, ip=_ip(request), commit=False)
     await session.commit()
     return {"ok": True, "image_url": row.image_url}
 
@@ -224,8 +227,10 @@ async def set_settings(
         session.add(Pricing(key=CAROUSEL_KEY, value=value))
     else:
         row.value = value
+    # FIX: A1
     await audit(session, admin_id=admin.id, action="banner.settings", target_type="setting",
-    target_id=CAROUSEL_KEY, after={"interval_ms": ms, "behavior": beh}, ip=_ip(request), commit=False)  # FIX: A1
+                target_id=CAROUSEL_KEY, after={"interval_ms": ms, "behavior": beh},
+                ip=_ip(request), commit=False)
     await session.commit()
     return {"interval_ms": ms, "behavior": beh}
 

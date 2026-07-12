@@ -161,6 +161,81 @@ async def test_attempt_renewal_failed_charge_does_not_extend(monkeypatch):
         assert user.sub_expires == original_expires
 
 
+async def test_attempt_renewal_refunds_when_activation_fails(monkeypatch):
+    """AUDIT-P2 (P0): the charge settles, then activate_subscription raises. The
+    money-back safety net MUST actually call the gateway refund. Regression: the
+    handler read method.gateway/user.* AFTER session.rollback() expired them, so
+    the sync attribute access raised MissingGreenlet, got swallowed by the inner
+    except, and the refund silently never ran — user charged, no sub, no refund."""
+    async with SessionFactory() as s:
+        user = await _seed(s, 1, auto_renew=True, expires_in_hours=5)
+        await s.commit()
+        await payment_methods.save_method(
+            s, user_id=1, gateway="yookassa",
+            saved=SavedMethod(token="pm_saved_1", last4="4242"),
+        )
+
+        async def _fake_charge(method, **kwargs):
+            return "yk_tx_boom"
+
+        async def _boom_activate(*a, **k):
+            raise RuntimeError("activation exploded after charge")
+
+        monkeypatch.setattr("core.payments.service.charge_saved_method", _fake_charge)
+        monkeypatch.setattr("core.services.billing.activate_subscription", _boom_activate)
+
+        refunded: dict[str, object] = {}
+
+        class _GW:
+            async def refund(self, *, gateway_tx_id, amount):
+                refunded["tx"] = gateway_tx_id
+                refunded["amount"] = amount
+                return "rf_1"
+
+        monkeypatch.setattr("core.payments.get_provider", lambda name: _GW())
+
+        result = await autorenew.attempt_renewal(s, user)
+        assert result == "failed"
+        assert refunded.get("tx") == "yk_tx_boom", "refund safety-net did not run"
+
+
+async def test_run_autorenew_batch_survives_rollbacks(monkeypatch):
+    """AUDIT-P4 (P1): each user's failed renewal rolls back the shared session,
+    expiring every loaded User in the batch. The next iteration must re-load its
+    user fresh, not touch an expired attribute (MissingGreenlet) — otherwise one
+    early failure aborts the entire daily sweep. Both users' charges must fire."""
+    async with SessionFactory() as s:
+        await _seed(s, 1, auto_renew=True, expires_in_hours=5)
+        await _seed(s, 2, auto_renew=True, expires_in_hours=6)
+        await s.commit()
+        for uid in (1, 2):
+            await payment_methods.save_method(
+                s, user_id=uid, gateway="yookassa",
+                saved=SavedMethod(token=f"pm_{uid}", last4="4242"),
+            )
+
+        charged: list[str] = []
+
+        async def _fake_charge(method, **kwargs):
+            charged.append(method.token)
+            return f"tx_{method.token}"
+
+        async def _activate(session, user, **k):  # every activation fails post-charge
+            raise RuntimeError(f"activation boom user {user.user_id}")
+
+        class _GW:
+            async def refund(self, *, gateway_tx_id, amount):
+                return "rf"
+
+        monkeypatch.setattr("core.payments.service.charge_saved_method", _fake_charge)
+        monkeypatch.setattr("core.services.billing.activate_subscription", _activate)
+        monkeypatch.setattr("core.payments.get_provider", lambda name: _GW())
+
+        counts = await autorenew.run_autorenew(s)
+        assert set(charged) == {"pm_1", "pm_2"}, "a user was skipped after a prior rollback"
+        assert counts == {"due": 2, "renewed": 0, "skipped": 2}
+
+
 async def test_run_autorenew_counts():
     async with SessionFactory() as s:
         await _seed(s, 1, auto_renew=True, expires_in_hours=10)

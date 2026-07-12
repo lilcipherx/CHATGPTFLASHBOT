@@ -133,3 +133,37 @@ async def test_retry_with_result_skips_resolve_and_submit(monkeypatch):
     assert delivered == ["https://x/v.mp4"]
     async with SessionFactory() as s:
         assert (await s.get(GenerationJob, job_id)).status == "complete"
+
+
+async def test_resume_processing_job_polls_and_completes(monkeypatch):
+    """G-3: a job redelivered while still 'processing' with a provider task but NO
+    result_url yet (worker crashed mid-poll) must RESUME polling that task and
+    finalise — not hit the Phase-A claim's WHERE status='pending' (rowcount 0) and
+    silently return, wasting submit_or_resume and stranding the job until the
+    30-min stuck sweep."""
+    delivered: list[str] = []
+
+    async def _fake_deliver(job, url, locale="ru"):
+        delivered.append(url)
+
+    async def _fake_resolve(*a, **k):
+        return [_FakeBackend()]
+
+    async def _fake_submit_or_resume(
+        session, backends, *, existing_provider_job_id, existing_backend=None
+    ):
+        # Resume path: reuse the existing provider task, never submit a new one.
+        assert existing_provider_job_id == "ptask-1"
+        return _FakeBackend(), existing_provider_job_id
+
+    monkeypatch.setattr(video_tasks, "POLL_INTERVAL", 0)
+    monkeypatch.setattr(video_tasks, "_deliver", _fake_deliver)
+    monkeypatch.setattr(video_tasks, "resolve_backends", _fake_resolve)
+    monkeypatch.setattr(video_tasks, "submit_or_resume", _fake_submit_or_resume)
+
+    job_id = await _job(status="processing", provider_job_id="ptask-1")  # no result_url
+    await video_tasks.process_video_job(None, job_id)
+    async with SessionFactory() as s:
+        job = await s.get(GenerationJob, job_id)
+        assert job.status == "complete" and job.result_url == "https://x/v.mp4"
+    assert delivered == ["https://x/v.mp4"]  # resumed → polled → delivered once

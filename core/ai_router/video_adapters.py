@@ -54,7 +54,9 @@ class KlingVideo(_BaseVideoProvider):
         """FIX: H5 - Kling API requires a JWT (not a raw key). Generated from
         access_key (kling_api_key) + secret_key (kling_secret_key) via PyJWT."""
         import time
+
         import jwt  # PyJWT is in requirements.txt
+
         from core.config import settings
 
         access_key = self._key

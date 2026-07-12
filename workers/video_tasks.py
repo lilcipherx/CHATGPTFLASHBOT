@@ -5,20 +5,20 @@ Effects/Motion) through its provider adapter and delivers the result to the user
 via the bot. On failure the video credits are returned."""
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+
 # FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
 # the AUDIT-11 pass (was: NameError on any worker error → worker crash).
 import structlog
-log = structlog.get_logger()
-
-
-import asyncio
-from datetime import UTC, datetime
 
 from core.ai_router.video_adapters import provider_for
 from core.db import SessionFactory
 from core.models import GenerationJob
 from core.services.media_dispatch import resolve_backends, submit_or_resume
 from core.services.refunds import refund_job
+
+log = structlog.get_logger()
 
 POLL_INTERVAL = 8       # seconds between polls
 MAX_POLLS = 150         # ~20 min ceiling
@@ -62,8 +62,9 @@ async def _deliver_and_finalise(job_id: str, result_url: str) -> None:
         job = await session.get(GenerationJob, job_id)
         if job is None or job.status == "complete":
             return  # already delivered & finalised
-        from core.services.users import user_locale
         from sqlalchemy import update as _update
+
+        from core.services.users import user_locale
 
         locale = await user_locale(session, job.user_id)
         # A Mini App generation is in-app when it carries a preset_id (curated effect)
@@ -166,7 +167,8 @@ async def process_video_job(ctx, job_id: str) -> None:
                     else:
                         bot = get_bot()
                         buf = await bot.download(image_file_id)
-                        img_url = await storage.save_upload(buf.read(), "jpg", prefix="video-inputs")
+                        img_url = await storage.save_upload(
+                            buf.read(), "jpg", prefix="video-inputs")
                         params["image_url"] = img_url
                 except Exception as exc:  # noqa: BLE001 — best-effort; if upload fails, text2video fallback
                     # FIX: AUDIT-11 - log instead of silent pass
@@ -192,15 +194,20 @@ async def process_video_job(ctx, job_id: str) -> None:
         # polling the SAME backend (a multi-backend pool must not poll a peer that
         # doesn't own the task). Reassign params so SQLAlchemy tracks the change.
         job.params = {**(job.params or {}), "backend": backend.name}
-        # FIX: F4 - conditional UPDATE WHERE status='pending' AND refunded_at IS NULL
-        # so the stuck-job sweep can't have the job refunded between our read and write
-        # (was: direct ORM assignment overwrote sweep's 'failed'+'refunded_at' → user
-        # got BOTH the delivered video AND the refund).
+        # FIX: F4 - conditional UPDATE WHERE status IN ('pending','processing') AND
+        # refunded_at IS NULL so the stuck-job sweep can't have the job refunded
+        # between our read and write (was: direct ORM assignment overwrote sweep's
+        # 'failed'+'refunded_at' → user got BOTH the delivered video AND the refund).
+        # FIX: AUDIT-G3 - accept 'processing' too (not just 'pending'): a job
+        # redelivered mid-flight (crashed after submit, before a result) is resumed by
+        # submit_or_resume above, so the claim must succeed to actually re-poll it
+        # instead of rowcount 0 → silent return → stranded until the 30-min sweep. The
+        # refunded_at IS NULL guard still blocks a swept+refunded job.
         from sqlalchemy import update as _update
         claim = await session.execute(
             _update(GenerationJob)
             .where(GenerationJob.job_id == job.job_id,
-                   GenerationJob.status == "pending",
+                   GenerationJob.status.in_(("pending", "processing")),
                    GenerationJob.refunded_at.is_(None))
             .values(status="processing", provider_job_id=provider_job_id,
                     params={**(job.params or {}), "backend": backend.name})

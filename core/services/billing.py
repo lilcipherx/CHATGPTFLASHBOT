@@ -24,7 +24,8 @@ async def _is_first_purchase(session: AsyncSession, user_id: int) -> bool:
 
 async def _apply_purchase_promos(
     session: AsyncSession, user: User, *, product: str, qty: int | None,
-    tx: "Transaction | None" = None,  # FIX: B2 - carry tx.id so revoke_entitlement can find the exact bonus log
+    # FIX: B2 - carry tx.id so revoke_entitlement can find the exact bonus log
+    tx: Transaction | None = None,
 ) -> None:
     """Grant configured promo bonuses for a just-recorded paid purchase, folded into
     the caller's transaction (commit=False — the caller commits). Cashback applies to
@@ -107,16 +108,24 @@ async def _record_tx(
         credits_added=credits_added,
         paid_at=datetime.now(UTC),
     )
-    session.add(tx)
     if gateway_tx_id:
-        # Flush now so a concurrent webhook delivery that passed the SELECT above
-        # trips the unique(gateway_tx_id) constraint here (not at the caller's
-        # commit). On conflict this is a duplicate → treat as already-processed.
+        # Add + flush INSIDE a SAVEPOINT so a concurrent webhook delivery that passed
+        # the SELECT above trips the unique(gateway_tx_id) constraint here (not at the
+        # caller's commit). FIX: AUDIT-6 / AUDIT-P3 - on conflict the savepoint rolls
+        # back and cleanly discards `tx` (it was added within the savepoint), leaving
+        # the caller's outer transaction usable. A bare flush() left the session
+        # aborted, so every later statement in apply_event raised PendingRollbackError.
+        # `tx` must be added inside the savepoint, else its rollback wouldn't remove it
+        # and the caller's commit would re-INSERT and re-conflict. Matches the proven
+        # pattern in referrals._grant_once.
         try:
-            await session.flush()
-        # FIX: AUDIT-6 - use SAVEPOINT so caller's session isn't poisoned
+            async with session.begin_nested():
+                session.add(tx)
+                await session.flush()
         except IntegrityError:
             return None
+    else:
+        session.add(tx)
     return tx
 
 
@@ -149,7 +158,8 @@ async def record_one_time(
     # FIX: C3 - lock User row before _apply_purchase_promos so two concurrent one-time
     # purchases can't both pass _is_first_purchase and double-grant the bonus.
     await session.refresh(user, with_for_update=True)
-    await _apply_purchase_promos(session, user, product=product, qty=None, tx=tx)  # FIX: B2 - pass tx
+    # FIX: B2 - pass tx
+    await _apply_purchase_promos(session, user, product=product, qty=None, tx=tx)
     await session.commit()
     return True
 
@@ -190,7 +200,8 @@ async def activate_subscription(
     base = current if (current and current > now) else now
     user.sub_tier = product
     user.sub_expires = base + timedelta(days=30 * months)
-    await _apply_purchase_promos(session, user, product=product, qty=None, tx=tx)  # FIX: B2 - pass tx
+    # FIX: B2 - pass tx
+    await _apply_purchase_promos(session, user, product=product, qty=None, tx=tx)
     await session.commit()
     return True
 
@@ -214,7 +225,8 @@ async def add_credits(
     if tx is None:
         return False
     await credits.grant(session, user, qty, commit=False)
-    await _apply_purchase_promos(session, user, product="credits", qty=qty, tx=tx)  # FIX: B2 - pass tx
+    # FIX: B2 - pass tx
+    await _apply_purchase_promos(session, user, product="credits", qty=qty, tx=tx)
     await session.commit()
     return True
 
@@ -425,5 +437,6 @@ async def revoke_entitlement(session: AsyncSession, tx: Transaction) -> None:
     except Exception:  # noqa: BLE001 — bonus reversal is best-effort
         # FIX: AUDIT-6 - log bonus reversal failure so admin can reconcile
         import structlog
-        structlog.get_logger().warning("billing.bonus_reversal_failed", user_id=user.user_id, tx_id=tx.tx_id)
+        structlog.get_logger().warning(
+            "billing.bonus_reversal_failed", user_id=user.user_id, tx_id=tx.tx_id)
     # "avatar" and other one-time services have nothing to reverse.

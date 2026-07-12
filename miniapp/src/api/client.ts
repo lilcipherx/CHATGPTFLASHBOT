@@ -29,9 +29,22 @@ function fetchWithTimeout(input: string, init: RequestInit = {}): Promise<Respon
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
 }
 
+// FIX: AUDIT-35 / AUDIT-U7 - map HTTP status → an i18n error KEY (translated by the
+// caller). Single source of truth instead of the same object inlined in three places.
+// 413 (upload/dimensions too large) now surfaces the accurate "too big" message and 503
+// (upload failed / service unavailable) the server message, instead of a generic
+// "something went wrong". Unmapped statuses fall back to err_generic.
+const ERROR_KEY: Record<number, string> = {
+  401: "err_auth", 402: "err_limit", 413: "err_too_big",
+  429: "err_rate", 500: "err_server", 503: "err_server",
+};
+export function errKeyForStatus(status: number): string {
+  return ERROR_KEY[status] || "err_generic";
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetchWithTimeout(`${BASE}/api${path}`, { headers: headers() });
-  if (!res.ok) { const c = `ERROR_${res.status}`; const m: Record<string,string> = { ERROR_402: "err_limit", ERROR_429: "err_rate", ERROR_500: "err_server", ERROR_401: "err_auth" }; throw new Error(m[c] || "err_generic"); }  // FIX: AUDIT-35
+  if (!res.ok) throw new Error(errKeyForStatus(res.status));
   return res.json() as Promise<T>;
 }
 
@@ -41,8 +54,19 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { ...headers(), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) { const c = `ERROR_${res.status}`; const m: Record<string,string> = { ERROR_402: "err_limit", ERROR_429: "err_rate", ERROR_500: "err_server", ERROR_401: "err_auth" }; throw new Error(m[c] || "err_generic"); }  // FIX: AUDIT-35
+  if (!res.ok) throw new Error(errKeyForStatus(res.status));
   return res.json() as Promise<T>;
+}
+
+// FIX: AUDIT-U3 - a per-submit-intent idempotency token. The Create flow generates one
+// synchronously per generation and sends it here so the backend (miniapp.effect_generate /
+// free_model_generate) can dedup twin submits (double-tap / retry / replay) within its
+// short TTL window instead of charging + queueing the same job twice.
+export function newIdempotencyKey(): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  } catch { /* fall through */ }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 async function uploadEffect(
@@ -50,9 +74,11 @@ async function uploadEffect(
   fields: Record<string, string>,
   photos: File[],
   signal?: AbortSignal,  // FIX: AUDIT-3 - accept caller signal
+  idempotencyKey?: string,  // FIX: AUDIT-U3 - per-submit-intent dedup token
 ): Promise<{ job_id: string; cost: number }> {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  if (idempotencyKey) form.append("idempotency_key", idempotencyKey);
   for (const p of photos) form.append("photos", p);
   // FIX: FRONTEND - uploads can legitimately take longer (30 MB photo), so allow 60s.
   const ctrl = new AbortController();
@@ -66,8 +92,8 @@ async function uploadEffect(
     const res = await fetch(`${BASE}/api${path}`, {
       method: "POST", headers: headers(), body: form, signal: ctrl.signal,
     });
-    if (res.status === 402) throw new Error("LIMIT");
-    if (!res.ok) { const c = `ERROR_${res.status}`; const m: Record<string,string> = { ERROR_402: "err_limit", ERROR_429: "err_rate", ERROR_500: "err_server", ERROR_401: "err_auth" }; throw new Error(m[c] || "err_generic"); }  // FIX: AUDIT-35
+    if (res.status === 402) throw new Error("LIMIT");  // callers map "LIMIT" → err_limit
+    if (!res.ok) throw new Error(errKeyForStatus(res.status));  // FIX: AUDIT-35 / AUDIT-U7
     return res.json();
   } finally {
     clearTimeout(timer);
@@ -271,15 +297,16 @@ export const api = {
     prompt: string,
     photos: File[],
     signal?: AbortSignal,  // FIX: AUDIT13-L21 - forward caller abort into the upload
+    idempotencyKey?: string,  // FIX: AUDIT-U3
   ) =>
-    uploadEffect(`/effects/${encodeURIComponent(kind)}/${id}/generate`, { model, params: JSON.stringify(params), prompt }, photos, signal),  // FIX: AUDIT12-L3
+    uploadEffect(`/effects/${encodeURIComponent(kind)}/${id}/generate`, { model, params: JSON.stringify(params), prompt }, photos, signal, idempotencyKey),  // FIX: AUDIT12-L3
 
   // Free model choice (§ variant 3): browse/price/generate a model directly.
   freeModels: (kind: EffectKind) => get<FreeModel[]>(`/models/${encodeURIComponent(kind)}`),
   freeModelCost: (kind: EffectKind, model: string, params: Record<string, unknown>) =>
     postJson<{ cost: number; currency: string }>(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/cost`, { params }),
-  freeModelGenerate: (kind: EffectKind, model: string, params: Record<string, unknown>, prompt: string, photos: File[], signal?: AbortSignal) =>  // FIX: AUDIT13-L21
-    uploadEffect(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/generate`, { params: JSON.stringify(params), prompt }, photos, signal),
+  freeModelGenerate: (kind: EffectKind, model: string, params: Record<string, unknown>, prompt: string, photos: File[], signal?: AbortSignal, idempotencyKey?: string) =>  // FIX: AUDIT13-L21, AUDIT-U3
+    uploadEffect(`/models/${encodeURIComponent(kind)}/${encodeURIComponent(model)}/generate`, { params: JSON.stringify(params), prompt }, photos, signal, idempotencyKey),
 
   job: (jobId: string) => get<JobStatus>(`/jobs/${encodeURIComponent(jobId)}`),  // FIX: AUDIT12-L3
   history: () => get<HistoryItem[]>("/jobs"),

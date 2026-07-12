@@ -57,6 +57,10 @@ class Backend:
     account_id: int | None
     submit: Callable[[], Awaitable[str]]
     poll: Callable[[str], Awaitable[JobStatus]]
+    # FIX: AUDIT-G1 - the routed model's admin-set per-request cost, carried with the
+    # backend so submit_first can accrue account spend (feeds the spend-limit cap).
+    # 0 for the direct env provider (not spend-tracked).
+    cost_micros: int = 0
 
 
 async def resolve_backends(
@@ -86,6 +90,7 @@ async def resolve_backends(
                     account_id=acc.id,
                     submit=lambda gw=gw, m=upstream: gw.submit(m, params),
                     poll=lambda tid, gw=gw: gw.poll(tid),
+                    cost_micros=model.cost_micros or 0,  # FIX: AUDIT-G1
                 )
             )
     if direct_provider is not None and direct_provider.is_available():
@@ -123,7 +128,7 @@ async def submit_first(session, backends: list[Backend]) -> tuple[Backend | None
             try:
                 acc = await session.get(AIAccount, b.account_id)
                 if acc is not None:
-                    await routing.mark_success(session, acc)
+                    await routing.mark_success(session, acc, cost_micros=b.cost_micros)
             except Exception:  # noqa: BLE001 — health-stat failure is non-fatal
                 pass
         return b, task_id
@@ -192,7 +197,7 @@ async def generate_image_routed(
             # (a DB hiccup recording health stats shouldn't discard already-fetched
             # images). Mirror the R18 wrap in submit_first.
             try:
-                await routing.mark_success(session, acc)
+                await routing.mark_success(session, acc, cost_micros=model.cost_micros or 0)
             except Exception:  # noqa: BLE001 — health-stat failure is non-fatal
                 pass
             return images
@@ -219,17 +224,18 @@ async def generate_image_routed_managed(
             raise RuntimeError(f"provider '{model_key}' disabled by admin")
 
     # 1) Resolve the ordered image accounts in a short session, then release it.
-    resolved: list[tuple[int, object, str]] = []  # (account_id, gateway, upstream_model)
+    # (account_id, gateway, upstream_model, cost_micros)  — FIX: AUDIT-G1
+    resolved: list[tuple[int, object, str, int]] = []
     async with SessionFactory() as s:
         model = await routing.resolve_model(s, model_key)
         if model is not None and model.modality == "image":
             for acc in await routing.resolve_route(s, model):
                 gw = routing.gateway_for_account(acc)
                 if gw is not None and gw.is_available():
-                    resolved.append((acc.id, gw, model.upstream_model))
+                    resolved.append((acc.id, gw, model.upstream_model, model.cost_micros or 0))
 
     # 2) Try each aggregator account with no session/connection held during HTTP.
-    for account_id, gw, upstream in resolved:
+    for account_id, gw, upstream, cost_micros in resolved:
         try:
             images = await gw.generate_image(upstream, prompt, cfg)
         except Exception as exc:  # noqa: BLE001 — mark health + try the next backend
@@ -246,7 +252,7 @@ async def generate_image_routed_managed(
             async with SessionFactory() as s:
                 acc = await s.get(AIAccount, account_id)
                 if acc is not None:
-                    await routing.mark_success(s, acc)
+                    await routing.mark_success(s, acc, cost_micros=cost_micros)
         except Exception:  # noqa: BLE001 — health-stat failure is non-fatal
             pass
         return images

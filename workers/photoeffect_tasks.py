@@ -6,19 +6,19 @@ free weekly slot. (Real img2img with the uploaded selfie + S3 hosting is TODO â€
 gated behind a provider key.)"""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 # FIX: AUDIT12-6..11 - structlog import for log.warning calls added by
 # the AUDIT-11 pass (was: NameError on any worker error â†’ worker crash).
 import structlog
-log = structlog.get_logger()
-
-
-from datetime import UTC, datetime
 
 from core.ai_router.image_adapters import generate_image
 from core.db import SessionFactory
 from core.models import GenerationJob
 from core.services.media_dispatch import generate_image_routed_managed
 from core.services.refunds import refund_job
+
+log = structlog.get_logger()
 
 
 async def process_photoeffect_job(ctx, job_id: str) -> None:

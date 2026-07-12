@@ -92,6 +92,34 @@ async def delete_user_data(session: AsyncSession, user_id: int) -> dict[str, int
     """
     counts: dict[str, int] = {}
 
+    # FIX: AUDIT-P1-GDPR - erasure must remove the user's STORED OBJECTS too, not just
+    # the DB rows. Collect every URL our storage owns BEFORE the row deletes below wipe
+    # the pointers: generated results + the uploaded reference/face photos in
+    # generation_jobs.params.input_images, and approved gallery images. Deleting the
+    # rows first (as we do) would otherwise strand these biometric images in S3/MinIO
+    # permanently — a GDPR Art.17 violation that no later sweep could ever locate.
+    storage_urls: list[str] = []
+    try:
+        jobs = (await session.scalars(
+            select(GenerationJob).where(GenerationJob.user_id == user_id)
+        )).all()
+        for j in jobs:
+            if j.result_url:
+                storage_urls.append(j.result_url)
+            for img in (j.params or {}).get("input_images") or []:
+                if isinstance(img, str):
+                    storage_urls.append(img)
+                elif isinstance(img, dict):
+                    u = img.get("url") or img.get("file_id")
+                    if isinstance(u, str) and u.startswith(("http://", "https://", "/media/")):
+                        storage_urls.append(u)
+        gallery_urls = (await session.scalars(
+            select(GalleryItem.image_url).where(GalleryItem.user_id == user_id)
+        )).all()
+        storage_urls.extend([u for u in gallery_urls if u])
+    except Exception as exc:  # noqa: BLE001 — collection is best-effort; never block erasure
+        log.warning("gdpr.collect_storage_urls_failed", user_id=user_id, error=str(exc))
+
     # Order matters: delete child rows first so CASCADE doesn't fire before we
     # can count them. With 0038 FKs in place CASCADE would handle these anyway,
     # but we want explicit counts + best-effort for tables that still have no FK.
@@ -167,6 +195,21 @@ async def delete_user_data(session: AsyncSession, user_id: int) -> dict[str, int
     except Exception as exc:  # noqa: BLE001
         log.error("gdpr.delete_user_failed", user_id=user_id, error=str(exc))
         counts["users"] = -1
+
+    # Best-effort delete of the user's stored objects (collected above, before the
+    # rows were wiped). storage.delete never raises and quietly ignores anything that
+    # isn't ours (provider/presigned URLs), so a backend hiccup can't abort the
+    # relational erasure that already succeeded above.
+    from core.services import storage
+
+    deleted_objs = 0
+    for url in storage_urls:
+        try:
+            if await storage.delete(url):
+                deleted_objs += 1
+        except Exception as exc:  # noqa: BLE001 — storage cleanup is best-effort
+            log.warning("gdpr.delete_object_failed", user_id=user_id, error=str(exc))
+    counts["storage_objects_deleted"] = deleted_objs
 
     log.info("gdpr.user_data_deleted", user_id=user_id, counts=counts)
     return counts

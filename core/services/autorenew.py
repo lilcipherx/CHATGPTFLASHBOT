@@ -137,20 +137,34 @@ async def attempt_renewal(session: AsyncSession, user: User) -> str:
             gateway=method.gateway, amount=minor, gateway_tx_id=tx_id,
         )
     except Exception as exc:
-        log.error("autorenew: activate_subscription failed user_id=%s: %s — refunding", user.user_id, exc)
+        log.error(
+            "autorenew: activate_subscription failed user_id=%s: %s — refunding",
+            user.user_id, exc,
+        )
+        # FIX: AUDIT-P2 (P0) - snapshot every scalar the refund path needs BEFORE
+        # session.rollback(). rollback() expires all ORM attributes; under AsyncSession
+        # a later synchronous read of an expired attribute (method.gateway, user.*)
+        # raises MissingGreenlet, which previously either got swallowed by the inner
+        # except or propagated out of its log call — either way the money-back refund
+        # silently never ran, leaving the user charged with no subscription.
+        gateway = method.gateway
+        uid = user.user_id
+        locale = getattr(user, "language_code", "ru") or "ru"
         try:
             await session.rollback()
-            from core.services.refunds import refund_stars
             from core.payments import get_provider
-            if method.gateway == "stars":
-                await refund_stars(session, user.user_id, product=f"sub:{tier}", charge_id=tx_id, locale=getattr(user, "language_code", "ru") or "ru")
+            from core.services.refunds import refund_stars
+            if gateway == "stars":
+                await refund_stars(
+                    session, uid, product=f"sub:{tier}", charge_id=tx_id, locale=locale
+                )
             else:
-                gw = get_provider(method.gateway)
+                gw = get_provider(gateway)
                 if gw is not None and hasattr(gw, "refund"):
                     await gw.refund(gateway_tx_id=tx_id, amount=minor)
             await session.commit()
         except Exception as refund_exc:  # noqa: BLE001
-            log.error("autorenew: refund_after_activate_failed user_id=%s: %s", user.user_id, refund_exc)
+            log.error("autorenew: refund_after_activate_failed user_id=%s: %s", uid, refund_exc)
         return "failed"
     return "renewed" if ok else "failed"
 
@@ -169,16 +183,25 @@ async def run_autorenew(session: AsyncSession | None = None) -> dict[str, int]:
             return await run_autorenew(own)
 
     users = await due_for_renewal(session)
+    # FIX: AUDIT-P4 (P1) - snapshot the ids while attributes are fresh, then re-load
+    # each user per iteration. A prior user's renewal can roll back the shared session
+    # (decline/refund paths), which expires EVERY loaded User; iterating over the stale
+    # objects would hit MissingGreenlet on the next user's expired attribute and abort
+    # the whole sweep. session.get() re-fetches through the async greenlet safely.
+    user_ids = [u.user_id for u in users]
     renewed = 0
-    for user in users:
+    for uid in user_ids:
         # FIX: AUDIT-11 - per-user try/except so one failure doesn't block others
         try:
+            user = await session.get(User, uid)
+            if user is None:
+                continue
             result = await attempt_renewal(session, user)
             if result == "renewed":
                 renewed += 1
         except Exception as exc:
-            log.warning("autorenew: user %s failed: %s", user.user_id, exc)
+            log.warning("autorenew: user %s failed: %s", uid, exc)
             await session.rollback()
     await session.commit()
 
-    return {"due": len(users), "renewed": renewed, "skipped": len(users) - renewed}
+    return {"due": len(user_ids), "renewed": renewed, "skipped": len(user_ids) - renewed}

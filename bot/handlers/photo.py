@@ -557,7 +557,8 @@ async def on_avatar_selfie(
     except Exception as exc:  # noqa: BLE001 — cron sweep will re-enqueue
         # FIX: AUDIT-114 - log instead of silent pass
         import structlog
-        structlog.get_logger().warning("avatar.enqueue_failed", job_id=str(job.job_id), error=str(exc))
+        structlog.get_logger().warning(
+            "avatar.enqueue_failed", job_id=str(job.job_id), error=str(exc))
     await message.answer(_("avatar.started"))
 
 

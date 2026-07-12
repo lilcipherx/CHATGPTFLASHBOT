@@ -21,4 +21,8 @@ ignore = ["B008"]  # FastAPI Depends() in defaults
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# FIX: B-5 - pin the async-fixture loop scope explicitly. Unset, pytest-asyncio emits a
+# PytestDeprecationWarning on every run and warns the future default will change; "function"
+# matches today's implicit behaviour (a fresh loop per test), so this is a no-op silence.
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

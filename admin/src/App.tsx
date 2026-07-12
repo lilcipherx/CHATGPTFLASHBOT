@@ -121,8 +121,11 @@ function NotFound() {
 // (require_role) remains the authoritative check — this is purely UX.
 const ROLE_RANK: Record<string, number> = { support: 1, moderator: 2, admin: 3, superadmin: 4 };
 function RoleGuard({ minRole, children }: { minRole?: string; children: ReactNode }) {
-  const role = localStorage.getItem("admin_role") ?? "admin";
-  const myRank = ROLE_RANK[role] ?? 3;
+  // FIX: AUDIT-U4 - fail CLOSED: an absent/unknown role must map to the LOWEST
+  // privilege (support/rank 1), never admin/rank 3. A partial localStorage clear
+  // (admin_authed set, admin_role missing) previously unhid admin-level pages.
+  const role = localStorage.getItem("admin_role") ?? "support";
+  const myRank = ROLE_RANK[role] ?? 1;
   const requiredRank = ROLE_RANK[minRole ?? "admin"] ?? 3;
   if (myRank < requiredRank) {
     return (
@@ -145,7 +148,7 @@ function RoleGuard({ minRole, children }: { minRole?: string; children: ReactNod
 function AdminShell({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const role = localStorage.getItem("admin_role") ?? "admin";
+  const role = localStorage.getItem("admin_role") ?? "support";  // FIX: AUDIT-U4 fail closed
   const email = localStorage.getItem("admin_email") || "admin";
   const initial = email.trim().charAt(0).toUpperCase() || "A";
 

@@ -1,6 +1,6 @@
 import WebApp from "@twa-dev/sdk";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, EffectDetail, EffectSummary, mediaUrl, ModelCard, pollJob } from "../api/client";
+import { api, EffectDetail, EffectSummary, mediaUrl, ModelCard, newIdempotencyKey, pollJob } from "../api/client";
 import { t } from "../i18n";
 import { haptic } from "../theme";
 
@@ -40,6 +40,9 @@ export function CreateSheet({
   // Abort an in-flight poll and revoke preview blob URLs when the sheet unmounts.
   const abortRef = useRef<AbortController | null>(null);
   const previewsRef = useRef<string[]>([]);
+  // FIX: AUDIT-U3 - synchronous double-submit guard (see Create.tsx). `phase` is async
+  // React state, so a fast double-tap could charge two generations before it flips.
+  const submittingRef = useRef(false);
   previewsRef.current = previews;
   useEffect(() => () => {
     abortRef.current?.abort();
@@ -119,18 +122,20 @@ export function CreateSheet({
   }
 
   async function run() {
-    if (phase === "running") return;
+    if (submittingRef.current || phase === "running") return;
     if (maxPhotos > 0 && files.length === 0) { setError(t("err_need_photo")); return; }
     if (detail?.prompt_mode === "required" && !prompt.trim()) { setError(t("err_need_prompt")); return; }
+    submittingRef.current = true;  // FIX: AUDIT-U3 - claim the in-flight slot synchronously
     haptic("medium");
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setPhase("running");
     setStatus(t("uploading"));
     setProgress(8);
+    const idem = newIdempotencyKey();  // FIX: AUDIT-U3 - stable per-submit-intent token
     try {
       const { job_id } = await api.effectGenerate(
-        effect.kind, effect.id, model, params, prompt, files, ctrl.signal,  // FIX: AUDIT13-L21 - abort the upload on unmount
+        effect.kind, effect.id, model, params, prompt, files, ctrl.signal, idem,  // FIX: AUDIT13-L21, AUDIT-U3
       );
       if (ctrl.signal.aborted) return;
       setStatus(t("generating"));
@@ -159,6 +164,8 @@ export function CreateSheet({
       // FIX: AUDIT13-M16 - msg is an i18n KEY (err_server/err_rate/...); translate it.
       setError(msg === "LIMIT" ? t("err_limit") : t(msg));
       setPhase("error");
+    } finally {
+      submittingRef.current = false;  // FIX: AUDIT-U3 - release the slot for a genuine retry
     }
   }
 

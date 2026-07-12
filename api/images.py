@@ -11,6 +11,22 @@ import io
 from fastapi import HTTPException
 from PIL import Image
 
+# FIX: AUDIT-P6 - decompression-bomb ceiling. Pillow allocates memory proportional to
+# the DECLARED pixel dimensions, so a tiny highly-compressed file claiming e.g.
+# 60000x60000 (3.6 Gpx) would blow up the process on decode. Pillow's own guard only
+# WARNS between its default limit and 2x it, and .verify() does not always trip it, so
+# we reject by declared dimensions BEFORE any .load()/.convert(). 50 Mpx is far above any
+# legitimate phone/DSLR upload (a 50MP photo) yet ~150MB RGB — a safe hard cap.
+_MAX_IMAGE_PIXELS = 50_000_000
+
+
+def _too_many_pixels(im: Image.Image) -> bool:
+    """True if the image's declared dimensions exceed the decompression-bomb ceiling.
+    Read from the header (im.size is known right after Image.open) so we can bail out
+    before allocating a single pixel."""
+    w, h = im.size
+    return (w * h) > _MAX_IMAGE_PIXELS
+
 
 def _detect_image_ext(data: bytes) -> str | None:
     """Canonical extension from the file's MAGIC BYTES (not the client-supplied
@@ -37,6 +53,8 @@ def _normalize_image(data: bytes) -> tuple[bytes, str] | None:
         return data, ext
     try:
         with Image.open(io.BytesIO(data)) as im:
+            if _too_many_pixels(im):
+                return None  # decompression-bomb guard: refuse before decoding pixels
             im.load()
             converted = im.convert("RGBA") if im.mode in ("RGBA", "LA", "P") else im.convert("RGB")
             out = io.BytesIO()
@@ -55,9 +73,15 @@ def _validate_image(data: bytes) -> str:
     if ext is None:
         raise HTTPException(status_code=415, detail="unsupported or non-image file")
     try:
+        im = Image.open(io.BytesIO(data))
+        # Decompression-bomb guard: reject by DECLARED dimensions before verify()/decode.
+        if _too_many_pixels(im):
+            raise HTTPException(status_code=413, detail="image dimensions too large")
         # verify() confirms the image is structurally intact without a full pixel
         # decode; it must be the first operation after open().
-        Image.open(io.BytesIO(data)).verify()
+        im.verify()
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001 — Pillow raises various types on bad data
         raise HTTPException(status_code=415, detail="corrupt or invalid image") from exc
     return ext

@@ -25,10 +25,17 @@ class MaintenanceMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        # FIX: AUDIT-P6 - never drop a successful_payment: Telegram already charged the
+        # user, so blocking it because maintenance flipped on mid-payment would take the
+        # money without crediting. Mirrors ThrottlingMiddleware's carve-out.
+        if getattr(event, "successful_payment", None) is not None:
+            return await handler(event, data)
+
         user = data.get("user")
         session = data.get("session")
         # Admins bypass; without a user/session we can't decide → let it through.
-        if user is not None and is_admin(user.user_id):  # FIX: AUDIT-171 - removed dead session-None branch
+        # FIX: AUDIT-171 - removed dead session-None branch
+        if user is not None and is_admin(user.user_id):
             return await handler(event, data)
         try:
             state = await pricing.maintenance(session)

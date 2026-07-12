@@ -364,30 +364,36 @@ async def on_successful_payment(
                 await notify_referrer(*rewarded, reason="purchase")
         except Exception as exc:
             import structlog
-            structlog.get_logger().warning("premium.referral_reward_failed", user_id=user.user_id, error=str(exc))
+            structlog.get_logger().warning(
+                "premium.referral_reward_failed", user_id=user.user_id, error=str(exc))
         try:
             from core.services.loyalty import check_and_notify_upgrade
             await check_and_notify_upgrade(session, user)
         except Exception as exc:
             import structlog
-            structlog.get_logger().warning("premium.loyalty_check_failed", user_id=user.user_id, error=str(exc))
+            structlog.get_logger().warning(
+                "premium.loyalty_check_failed", user_id=user.user_id, error=str(exc))
         try:
             from core.services.billing import notify_purchase_bonus
             await notify_purchase_bonus(session, user)
         except Exception as exc:
             import structlog
-            structlog.get_logger().warning("premium.bonus_notify_failed", user_id=user.user_id, error=str(exc))
+            structlog.get_logger().warning(
+                "premium.bonus_notify_failed", user_id=user.user_id, error=str(exc))
         try:
-            await promos.consume_discount(session, user, sale_pct=await pricing.sale_percent(session))
+            await promos.consume_discount(
+                session, user, sale_pct=await pricing.sale_percent(session))
         except Exception as exc:
             import structlog
-            structlog.get_logger().warning("premium.discount_consume_failed", user_id=user.user_id, error=str(exc))
+            structlog.get_logger().warning(
+                "premium.discount_consume_failed", user_id=user.user_id, error=str(exc))
         try:
             from core.services import checkout
             await checkout.mark_completed(session, user.user_id)
         except Exception as exc:
             import structlog
-            structlog.get_logger().warning("premium.checkout_mark_failed", user_id=user.user_id, error=str(exc))
+            structlog.get_logger().warning(
+                "premium.checkout_mark_failed", user_id=user.user_id, error=str(exc))
     # FIX: AUDIT12-4 - removed the duplicate unwrapped block that re-ran loyalty,
     # notify_purchase_bonus, consume_discount and mark_completed AFTER the AUDIT-12
     # wrapped block above (L324-355). The duplicate consumed single-use promo codes

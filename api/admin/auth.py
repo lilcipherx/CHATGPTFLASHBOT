@@ -143,6 +143,15 @@ async def login(
         within_limit = True
     if not within_limit:
         raise HTTPException(status_code=429, detail="too many attempts, try again later")
+    # FIX: AUDIT-A1 - per-ACCOUNT failure lockout on top of the per-IP cap. The IP
+    # limiter above is bypassed by a distributed/rotating-IP attacker, leaving a single
+    # account (especially a support/moderator without mandatory 2FA) open to slow
+    # credential guessing. We count only FAILURES (below) and reset on success, so a
+    # legitimate admin is never locked out by their own successful logins. Fail-open on
+    # a Redis outage (peek returns 0) — argon2 + 2FA remain the real gate.
+    acct_fail_key = f"adminlogin_fail:{email}"
+    if await ratelimit.peek(acct_fail_key) >= 10:
+        raise HTTPException(status_code=429, detail="too many attempts, try again later")
     # Case-insensitive match: mobile keyboards often auto-capitalize the email.
     admin = await session.scalar(
         select(AdminUser).where(func.lower(AdminUser.email) == email)
@@ -153,10 +162,12 @@ async def login(
         # (prevents account enumeration via response timing).
         verify_password_dummy(req.password)
         reason = "unknown_email" if admin is None else "inactive"
+        await ratelimit.incr(acct_fail_key, 900)  # FIX: AUDIT-A1
         await _audit_login(session, admin_id=admin.id if admin else 0,
                            success=False, reason=reason, email=email, ip=ip, user_agent=ua)
         raise HTTPException(status_code=401, detail="invalid credentials")
     if not verify_password(req.password, admin.password_hash):
+        await ratelimit.incr(acct_fail_key, 900)  # FIX: AUDIT-A1
         await _audit_login(session, admin_id=admin.id,
                            success=False, reason="bad_password", email=email, ip=ip, user_agent=ua)
         raise HTTPException(status_code=401, detail="invalid credentials")
@@ -169,6 +180,7 @@ async def login(
         # FIX: AUDIT-1 - decrypt TOTP secret before verify
         from core.services.crypto import decrypt as _decrypt
         if not verify_totp(_decrypt(admin.totp_secret), req.otp):
+            await ratelimit.incr(acct_fail_key, 900)  # FIX: AUDIT-A1
             await _audit_login(session, admin_id=admin.id, success=False,
                                reason="otp_invalid", email=email, ip=ip, user_agent=ua)
             raise HTTPException(status_code=401, detail="otp_invalid")
@@ -177,6 +189,7 @@ async def login(
         # Hand back a restricted setup-scoped session: it can ONLY enroll 2FA
         # (every other admin endpoint rejects this scope). No refresh token —
         # the admin must complete enrollment and log in again. (§8)
+        await ratelimit.reset(acct_fail_key)  # FIX: AUDIT-A1 - password was correct
         admin.last_login = datetime.now(UTC)
         await session.commit()
         setup = create_token(
@@ -192,6 +205,7 @@ async def login(
             mfa_setup_required=True,
         )
 
+    await ratelimit.reset(acct_fail_key)  # FIX: AUDIT-A1 - full login OK, clear failures
     admin.last_login = datetime.now(UTC)
     await session.commit()
     access = create_token(admin.id, admin.role, ver=admin.token_version)
@@ -247,7 +261,10 @@ async def refresh(
     _set_refresh_cookie(response, refresh_tok)  # rotate the refresh cookie too
     # FIX: AUDIT-98 - audit token refresh
     try:
-        await audit(session, admin_id=admin.id, action="auth.token_refresh", target_type="admin", target_id=str(admin.id), ip=_ip(request), commit=False)
+        await audit(
+            session, admin_id=admin.id, action="auth.token_refresh",
+            target_type="admin", target_id=str(admin.id), ip=_ip(request), commit=False,
+        )
         await session.commit()
     except Exception as exc:
         import structlog

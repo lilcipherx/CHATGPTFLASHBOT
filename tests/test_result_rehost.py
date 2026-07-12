@@ -37,19 +37,49 @@ async def test_rehost_rejects_non_http():
     assert await storage.rehost_remote("") is None
 
 
-def _fake_httpx(monkeypatch, *, content: bytes, ct: str):
+def _fake_httpx(monkeypatch, *, content: bytes, ct: str, chunk_size: int = 1 << 20,
+                headers: dict | None = None, on_chunk=None):
+    """Stub httpx.AsyncClient.stream() to yield ``content`` in ``chunk_size`` slices.
+
+    rehost_remote now STREAMS the body (FIX: AUDIT-P6) so the fake mirrors that: it
+    exposes .stream() returning an async-context response with .aiter_bytes(). ``on_chunk``
+    (if given) is called with the running byte count as each chunk is yielded, letting a
+    test assert the reader stops early instead of consuming the whole body.
+    """
     import httpx
 
+    base_headers = {"content-type": ct}
+    if headers:
+        base_headers.update(headers)
+
     class _Resp:
-        # FIX: AUDIT-TEST - include `url` — rehost_remote re-checks resp.url after
-        # redirects (FIX: F8); the old fake lacked it → AttributeError → rehost None.
+        is_redirect = False
+
         def __init__(self, url="https://prov/x.mp4"):
-            self.content = content
-            self.headers = {"content-type": ct}
+            self.headers = dict(base_headers)
             self.url = url
 
         def raise_for_status(self):
             return None
+
+        async def aiter_bytes(self):
+            total = 0
+            for i in range(0, len(content), chunk_size):
+                chunk = content[i:i + chunk_size]
+                total += len(chunk)
+                if on_chunk is not None:
+                    on_chunk(total)
+                yield chunk
+
+    class _Stream:
+        def __init__(self, url):
+            self._url = url
+
+        async def __aenter__(self):
+            return _Resp(self._url)
+
+        async def __aexit__(self, *a):
+            return False
 
     class _Client:
         def __init__(self, *a, **k):
@@ -61,8 +91,8 @@ def _fake_httpx(monkeypatch, *, content: bytes, ct: str):
         async def __aexit__(self, *a):
             return False
 
-        async def get(self, _url):
-            return _Resp(_url)
+        def stream(self, _method, url):
+            return _Stream(url)
 
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
 
@@ -90,8 +120,51 @@ async def test_rehost_success_stores_and_returns_our_url(monkeypatch):
 
 async def test_rehost_oversize_returns_none(monkeypatch):
     _fake_httpx(monkeypatch, content=b"x" * 100, ct="video/mp4")
+    async def _no_ssrf(_url):
+        return False
+    monkeypatch.setattr(storage, "_is_ssrf_url_async", _no_ssrf)
     out = await storage.rehost_remote("https://prov/x.mp4", max_bytes=10)
     assert out is None
+
+
+async def test_rehost_oversize_content_length_rejected_before_read(monkeypatch):
+    """A truthful Content-Length larger than the cap is rejected WITHOUT reading a byte."""
+    read_started = {"yes": False}
+
+    def _mark(_total):
+        read_started["yes"] = True
+
+    _fake_httpx(monkeypatch, content=b"x" * 100, ct="video/mp4",
+                headers={"content-length": "100"}, on_chunk=_mark)
+    async def _no_ssrf(_url):
+        return False
+    monkeypatch.setattr(storage, "_is_ssrf_url_async", _no_ssrf)
+
+    out = await storage.rehost_remote("https://prov/x.mp4", max_bytes=10)
+    assert out is None
+    assert read_started["yes"] is False  # bailed on the header, never streamed the body
+
+
+async def test_rehost_stops_streaming_once_cap_exceeded(monkeypatch):
+    """OOM guard: with NO Content-Length, the reader must stop the instant the running
+    total passes max_bytes — it must not buffer the whole (potentially multi-GB) body."""
+    seen: list[int] = []
+
+    def _track(total):
+        seen.append(total)
+
+    # 10 chunks of 1000 bytes each, cap at 2500 → reader should abort after the 3rd chunk
+    # (total 3000 > 2500) and never pull chunks 4..10.
+    _fake_httpx(monkeypatch, content=b"x" * 10_000, ct="video/mp4", chunk_size=1000,
+                on_chunk=_track)
+    async def _no_ssrf(_url):
+        return False
+    monkeypatch.setattr(storage, "_is_ssrf_url_async", _no_ssrf)
+
+    out = await storage.rehost_remote("https://prov/x.mp4", max_bytes=2500)
+    assert out is None
+    assert seen[-1] <= 3000  # stopped at the first chunk past the cap
+    assert len(seen) == 3    # never consumed the remaining 7 chunks
 
 
 async def test_rehost_swallows_errors(monkeypatch):

@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 
+from core.ai_router.base import ProviderUnavailable  # FIX: B15 - H6 changed run() to raise
 from core.db import SessionFactory, engine
 from core.models import Base
-from core.ai_router.base import ProviderUnavailable  # FIX: B15 - H6 changed run() to raise
 from core.services import phototools as pt
 
 

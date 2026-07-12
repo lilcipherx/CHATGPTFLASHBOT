@@ -42,6 +42,13 @@ class ChannelGateMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        # FIX: AUDIT-P6 - a successful_payment must always reach its handler: Telegram
+        # already charged the user, so dropping it because they left the gated channel
+        # between pre-checkout and delivery would take the money without crediting.
+        # Mirrors ThrottlingMiddleware's carve-out.
+        if getattr(event, "successful_payment", None) is not None:
+            return await handler(event, data)
+
         user = data.get("user")
         session = data.get("session")
         if user is None or session is None:
@@ -67,6 +74,7 @@ class ChannelGateMiddleware(BaseMiddleware):
             await event.answer()
             if event.message:
                 await event.message.answer(_("gate.channel"), reply_markup=markup)
-        elif isinstance(event, PreCheckoutQuery):  # FIX: B7 - block payments for non-subscribed users
+        # FIX: B7 - block payments for non-subscribed users
+        elif isinstance(event, PreCheckoutQuery):
             await event.answer(ok=False, error_message=_("gate.channel"))
         return None
