@@ -587,3 +587,38 @@ handler with pure, DB-free unit tests.
 (stripe 35% / yookassa 51% / crypto 60%) and `core/ai_router/*_adapter.py` wrap external
 SDKs — worthwhile but brittle without extensive mocks; `api/admin/deps.py` (52%, RBAC) and
 `api/admin/users.py` (56%) are good next targets for admin-authz coverage.
+
+---
+
+## Improvement workstream #4 — Mini App generation-flow redesign — DONE (commit a2ff2d9, deployed)
+
+Approved design **A** (sticky CTA + stepped progress + hero result). Reworked
+`miniapp/src/components/create/GenerateBar.tsx` (+ `styles.css`), container props
+unchanged (`Create.tsx` untouched — minimal blast radius):
+- **Sticky footer** — cost + balance + CTA stay pinned at the bottom while the form scrolls.
+- **Stepped progress** — Upload → Queue → Generate rail (active dot pulses) over the linear bar,
+  so waiting reads as stages, not a vague %.
+- **Insufficient balance** — CTA turns into an explicit warning (`err_limit`) instead of a silent
+  disabled button.
+- **Hero result** — the finished media reveals in a larger bordered card with a soft scale-in
+  (respects `prefers-reduced-motion`).
+- No new i18n strings (reused `uploading`/`queued`/`generating`/`err_limit` across all 8 locales).
+
+**Verified:** `tsc --noEmit` clean, 17 vitest, 4 Playwright e2e, build OK. Deployed: dist shipped
+(checksum-verified) + `--force-recreate caddy`; public `/miniapp/` serves the new bundle
+(`index--egnaNfe.js`), shell/js/css=200, caddy restarts=0.
+
+---
+
+## Improvement program summary (2026-07-12)
+
+Five sub-projects requested ("check the whole project + bot + design"):
+1. **Infra security P0** — internal ports closed (`ports: !reset []`), api loopback-only, `.env` 0600. ✅ deployed+verified.
+2. **Supply-chain** — Actions SHA-pinned, all external images digest-pinned. ✅
+3. **Coverage** — `packs_buy` 28%→84%, 892 tests, ratchet 65→67. ✅ (further targets documented)
+4. **Mini App generation-flow redesign** — design A. ✅ deployed+verified.
+5. **Telegram bot** — 118 entrypoints read line-by-line, 0 new defects. ✅
+
+Also found (logged): `release.yml` `needs:[lint,test]` references cross-workflow jobs (misconfig).
+Recommended: rotate `POSTGRES_PASSWORD` (surfaced in a session log during a compose-config render);
+verify AWS Security Group inbound (22/80/443 only); restore GitHub Actions billing to re-enable CI.
