@@ -7,7 +7,11 @@ services:
     # Headroom above the default 100 so the app pools + PgBouncer's server pool
     # fit comfortably. PgBouncer (below) is still what keeps app connections low.
     command: ["postgres", "-c", "max_connections=200"]
-    ports: []          # not exposed publicly in prod
+    # FIX: SEC-PORTS - `ports: []` does NOT clear the base file's published ports
+    # (Compose APPENDS `ports` lists across -f files — confirmed against compose-go
+    # v2.13 merge rules). Use the `!reset` tag to actually drop the base 5432 publish
+    # so Postgres is reachable only inside the Docker network, never on the host.
+    ports: !reset []
     # FIX: H11 - require POSTGRES_PASSWORD (was inheriting :-aiobot default from base).
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
@@ -38,14 +42,14 @@ services:
       AUTH_TYPE: scram-sha-256
     depends_on:
       - postgres
-    ports: []          # internal only — reached by the app at pgbouncer:6432
+    ports: !reset []   # FIX: SEC-PORTS - internal only (pgbouncer:6432 on the Docker net)
     restart: always
     deploy:  # FIX: AUDIT13-L25 - was unbounded (AUDIT-M9 only covered pg/redis/bot/api/worker/beat)
       resources:
         limits: { memory: 256m, cpus: "0.5" }
 
   redis:
-    ports: []
+    ports: !reset []   # FIX: SEC-PORTS - drop base 6379 host publish (Docker-net only)
     restart: always
     deploy:  # FIX: AUDIT-M9 - tune to host
       resources:
@@ -54,14 +58,14 @@ services:
   omniroute:
     # Dashboard not exposed publicly — reached only via Caddy on the IP-restricted
     # omniroute.{$DOMAIN} host below; the app reaches it at http://omniroute:20128.
-    ports: []
+    ports: !reset []   # FIX: SEC-PORTS - drop base 20128 host publish (Docker-net only)
     restart: always
     deploy:  # FIX: AUDIT13-L25
       resources:
         limits: { memory: 512m, cpus: "0.5" }
 
   minio:
-    ports: []
+    ports: !reset []   # FIX: SEC-PORTS - drop base 9000/9001 host publish (Docker-net only)
     restart: always
     deploy:  # FIX: AUDIT13-L25
       resources:
@@ -85,7 +89,10 @@ services:
     # request.client.host. This is what makes the login-audit IP and the YooKassa
     # webhook source-IP allow-list trustworthy behind Caddy.
     command: gunicorn api.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000 --forwarded-allow-ips="*"
-    ports: []          # reached only via Caddy
+    # FIX: SEC-PORTS - base publishes 8000 on 0.0.0.0. `!override` REPLACES that with a
+    # loopback-only bind: local host health/monitoring still works, but the API is no
+    # longer reachable from the internet (public traffic must go through Caddy).
+    ports: !override ["127.0.0.1:8000:8000"]
     restart: always
     deploy:  # FIX: AUDIT-M9 - tune to host (4 gunicorn workers → give it headroom)
       resources:
