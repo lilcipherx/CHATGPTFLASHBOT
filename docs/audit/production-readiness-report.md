@@ -635,3 +635,69 @@ verify AWS Security Group inbound (22/80/443 only); restore GitHub Actions billi
   branch protection; tags are cut from `main`.
 - **Full suite: 905 passed**, global 68.11% (missed 4614→4559 across the two coverage commits);
   CI ratchet 67 holds with margin. ruff clean on new tests.
+
+---
+
+## Independent re-verification (2026-07-12, commit `2c6d678` == `origin/main`)
+
+Zero-trust re-run of the full local gate suite against the **current** tree (not the
+`a93f049` audit-start snapshot the earlier sections were written against). Purpose:
+confirm the report's "fixed" claims still hold on `main` and record the true present
+state. No code changed in this pass — verification + documentation only.
+
+| Gate | Command | Result |
+|---|---|---|
+| Lint (blocking) | `ruff check .` (ruff 0.15.17) | ✅ **All checks passed** (earlier B-1's 160 errors are gone) |
+| Migration drift | `python -m scripts.check_migrations` | ✅ **OK — no drift** (earlier B-2 resolved) |
+| Unit + coverage | `pytest --cov=core --cov=api --cov=bot --cov=workers -q` | ✅ **905 passed, 0 failed** (584s); global **68%** (14296 stmts / 4558 miss) — above CI ratchet 67, below 70 target |
+| Miniapp typecheck | `tsc --noEmit` | ✅ clean |
+| Miniapp unit | `vitest run` | ✅ **17 passed** (4 files) |
+| Admin typecheck | `tsc --noEmit` | ✅ clean |
+| Admin unit | `vitest run` | ✅ **26 passed** (6 files) |
+| P0/P1 regression tests | grep for the 6 named tests | ✅ all present in tree (`test_gateway_webhooks.py`, `test_autorenew.py`, `test_payment_apply_event.py`, `test_integration.py`, `test_media_dispatch.py`) |
+| S-1 infra ports (P0) | inspect `docker-compose.prod.yml` | ✅ `ports: !reset []` on pg/redis/minio/omniroute; api bound `127.0.0.1:8000` only |
+
+**Drift from earlier report sections (report was stale, tree is ahead):**
+- **U-2 (Playwright not in CI) — now CLOSED.** `.github/workflows/ci.yml` `frontend` job
+  installs Chromium and runs `npm run e2e` (lines 107–117); `security` job runs `pip-audit`
+  + `bandit` (lines 119–131).
+- A second e2e spec `miniapp/e2e/flows.spec.ts` now exists (app-shell auth, 401 gate,
+  503 degradation) alongside `smoke.spec.ts`.
+
+**Still open / not closable locally:**
+- **U-1 (P1)** — no end-to-end money-flow e2e (upload → atomic charge → job poll →
+  result/refund). Current e2e covers shell/auth/error states only.
+- **Coverage** — 68% global vs 70% target; critical-path 85% target not independently
+  measured this pass.
+- **Deferred by design/owner decision** — P-5 Tribute HMAC (needs staging payload),
+  P-6 admin-grant ledger row, A-3 idempotency key, A-4 CSV export policy.
+- **Cannot run on this machine** — `pip-audit` (portable venv lacks stdlib `venv`),
+  `docker compose build` (no Docker CLI) → both deferred to CI. AWS deploy state not
+  re-checked this pass (read-only ssh not exercised).
+
+**Conclusion (locally verified):** `main` @ `2c6d678` passes every gate runnable on this
+host; all P0/P1 findings the report marks "fixed" are backed by present regression tests.
+**Requires CI:** `pip-audit`, `docker build`. **Requires staging/prod:** money-flow e2e,
+Tribute HMAC, live webhook/payment/AI, AWS deployed-SHA reconciliation.
+
+### Live-production reconciliation (2026-07-12, second pass — closes the gaps above)
+
+The prior subsection deferred AWS state and did not execute the browser/security gates.
+This pass exercised them directly (read-only on prod; no prod mutation, no deploy).
+
+| Check | Method | Result |
+|---|---|---|
+| **Contour SHA sync** | `git rev-parse origin/main` vs `cat /home/ubuntu/CHATGPTFLASHBOT/.DEPLOYED_SHA` via `ssh flashbot` | ✅ local == `origin/main` == **AWS deployed** == `2c6d678` |
+| **Prod API health** | `curl 127.0.0.1:8000/health` on host | ✅ `200 {"status":"ok","env":"prod"}` |
+| **Container fleet** | `docker ps` on host | ✅ 11/11 up; postgres/redis/minio/pgbouncer healthy |
+| **Live port posture (S-1)** | `docker ps` port map on host (not just compose file) | ✅ pg/redis/minio/omniroute internal-only; api `127.0.0.1:8000`; public = caddy `:80/:443` only |
+| **Playwright e2e** | `npm run e2e` (miniapp) — actually executed, not just "present in CI" | ✅ **4 passed** (smoke + auth/401/503 flows) |
+| **Bandit SAST** | `bandit -r core api bot workers -ll -q` | ✅ 0 findings |
+| **mypy (non-blocking)** | `mypy core api workers bot` | ⚠️ 310 errors/49 files — matches CI's `continue-on-error` stance; dominated by aiogram `Message|InaccessibleMessage|None` union-attr noise; not a merge gate |
+| **Secret hygiene** | `git ls-files .env` + `git grep` secret patterns | ✅ `.env` untracked & gitignored; no hardcoded secrets in tree |
+| **release.yml `needs` bug** | re-read workflow | ✅ fixed — no cross-workflow `needs`; `deploy: needs: image`; actions SHA-pinned |
+
+**Net:** the AWS deployed-SHA reconciliation that the first pass listed under
+"Requires staging/prod" is now **done and green**. No code defect (P0–P2) surfaced in this
+pass; no fix was required, so no code commit accompanies it. `pip-audit` + `docker build`
+remain CI-only on this host. Money-flow e2e (U-1) and Tribute HMAC still require staging.
