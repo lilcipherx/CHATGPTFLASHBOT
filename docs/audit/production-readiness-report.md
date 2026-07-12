@@ -515,3 +515,31 @@ FSM state isolation, idempotency, HTML escaping, callback_data parse safety.
 Handlers reviewed: account, bonus, chat, contests, context, documents, gift, groups,
 inline, invite, kling, links, menus, misc, model, music_gen, packs_buy, photo, premium,
 promo, roles, search, settings, start, support, video (+ __init__).
+
+---
+
+## Improvement workstream #1 — infra port exposure (P0) — FIXED (2026-07-12)
+
+**Root cause (Context7-verified vs compose-go v2.13):** `ports` is not in Compose's
+`mergeSpecials`, so `-f` files APPEND `ports` lists rather than replacing them. The prod
+overlay's `ports: []` therefore never cleared the base `docker-compose.yml` publishes —
+Postgres(5432)/Redis(6379)/MinIO(9000-9001)/OmniRoute(20128)/api(8000) were bound on
+`0.0.0.0`. Host `ufw` inactive → the AWS Security Group was the sole protection.
+
+**Fix (`docker-compose.prod.yml`, commit `997bfa5`):**
+- `ports: !reset []` on postgres/redis/minio/omniroute/pgbouncer — the `!reset` tag drops
+  the merged key entirely (Docker-network-only access).
+- `ports: !override ["127.0.0.1:8000:8000"]` on api — loopback bind (local health/monitoring
+  works; not internet-reachable; public traffic via Caddy).
+- Server `.env` perms tightened `0755`→`0600`.
+
+**Verified on prod after `up -d`:** host listening sockets reduced to `0.0.0.0:80`,
+`0.0.0.0:443`, `127.0.0.1:8000`. Ports 5432/6379/9000/9001/20128 no longer public.
+api `healthy`, `/health/ready=200` (DB+Redis reachable internally), public `/health=200`,
+`/metrics=403`, `/miniapp/=200`; `redis-cli ping`=PONG; worker/beat errors(60s)=0 (a single
+restart each during the redis recreation window, then stable); omniroute healthy.
+
+**Note:** a `docker compose config` render inadvertently surfaced `POSTGRES_PASSWORD` in a
+session log during validation — recommend rotating `POSTGRES_PASSWORD` + `DATABASE_URL` as a
+precaution. Defense-in-depth now holds even if the AWS SG is mis-set, but SG verification
+(only 22/80/443 inbound) is still recommended.
