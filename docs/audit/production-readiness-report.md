@@ -568,3 +568,22 @@ account-billing-blocked; no impact until Actions runs again).
 **Not done (lower priority, documented):** Dockerfile base `python:3.12-slim` is not digest-pinned
 — pinning would force a rebuild against a base newer than the running image; safer to pin during a
 planned rebuild window with a captured digest.
+
+---
+
+## Improvement workstream #3 — test coverage (2026-07-12, commit f427b68)
+
+Baseline global coverage 68% (886 tests). Targeted the lowest-covered **payment-critical**
+handler with pure, DB-free unit tests.
+
+- **`bot/handlers/packs_buy.py` 28% → 84%** — new `tests/test_packs_buy_handlers.py` (6 tests):
+  unknown pack ignored, disabled-section defence-in-depth on BOTH the menu and pay steps,
+  malformed `callback_data` acknowledged (no crash), missing price ignored, Stars-invoice
+  payload (`pack:<pack>:<qty>`, XTR).
+- Full suite after: **892 passed**, global **67.96%** (missed statements 4614→4581).
+- **CI ratchet raised `--fail-under` 65 → 67** to lock the gain (68 would flap on rounding).
+
+**Documented follow-on coverage opportunities (not done):** `core/payments/*_gw.py`
+(stripe 35% / yookassa 51% / crypto 60%) and `core/ai_router/*_adapter.py` wrap external
+SDKs — worthwhile but brittle without extensive mocks; `api/admin/deps.py` (52%, RBAC) and
+`api/admin/users.py` (56%) are good next targets for admin-authz coverage.
