@@ -622,3 +622,16 @@ Five sub-projects requested ("check the whole project + bot + design"):
 Also found (logged): `release.yml` `needs:[lint,test]` references cross-workflow jobs (misconfig).
 Recommended: rotate `POSTGRES_PASSWORD` (surfaced in a session log during a compose-config render);
 verify AWS Security Group inbound (22/80/443 only); restore GitHub Actions billing to re-enable CI.
+
+---
+
+## Post-program increments (2026-07-12, commit 134efbd, verified)
+
+- **`api/admin/deps.py` 52% → 65%** — `tests/test_admin_deps.py` (13 tests): `_ip_matches`
+  (exact/CIDR/open `0.0.0.0/0` + `::/0`/invalid), `like_contains` LIKE-escaping, `ip_allowlisted`
+  403 gate, `require_role` RBAC gate (allow + reject).
+- **`release.yml` fixed** — removed the invalid `needs: [lint, test]` (those jobs live in `ci.yml`;
+  `needs` is same-workflow only, so it made the release run fail at startup). CI gates `main` via
+  branch protection; tags are cut from `main`.
+- **Full suite: 905 passed**, global 68.11% (missed 4614→4559 across the two coverage commits);
+  CI ratchet 67 holds with margin. ruff clean on new tests.
