@@ -29,7 +29,8 @@ services:
   # onto DEFAULT_POOL_SIZE real Postgres connections, so scaling gunicorn/workers
   # no longer risks TooManyConnections.
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    # FIX: SEC-PIN - digest-pin the floating :latest tag to the tested image.
+    image: edoburu/pgbouncer:latest@sha256:4c1ca296ef525f108f5d3552cc337c0c09587cf8dae7f0067fd93349e47dc1cd
     environment:
       DB_HOST: postgres
       DB_NAME: ${POSTGRES_DB:-aiobot}
@@ -113,7 +114,8 @@ services:
         limits: { memory: 512m, cpus: "0.5" }
 
   caddy:
-    image: caddy:2-alpine
+    # FIX: SEC-PIN - digest-pin to the tested image.
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     depends_on:
       - api
     environment:
@@ -134,7 +136,8 @@ services:
         limits: { memory: 256m, cpus: "1.0" }
 
   backup:
-    image: postgres:16-alpine
+    # FIX: SEC-PIN - digest-pin to the tested image (matches the postgres service).
+    image: postgres:16-alpine@sha256:e013e867e712fec275706a6c51c966f0bb0c93cfa8f51000f85a15f9865a28cb
     depends_on:
       - postgres
     env_file: .env
