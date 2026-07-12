@@ -147,6 +147,13 @@ reversible). Single head now `0043`; check_migrations OK; 22-test cross-domain s
 This is the branch's FIRST production-relevant change — a deploy would now run 0043 (safe,
 concurrent index backfill).
 
+### F3 FIXED (P2 database): 3 more un-migrated model indexes (generalised from F2)
+Diagnostic (Base.metadata vs migrated schema) surfaced `gifts.buyer_id`, `gifts.redeemed_by`,
+`contest_entries.user_id` — all `index=True`, none migrated. Fixed in
+`migrations/versions/0044_missing_model_indexes.py`. The regression test was GENERALISED to
+assert every model-declared index exists on the migrated schema — a durable guard for the whole
+bug class. Head now `0044`; reversible; check_migrations OK; 30-test gifts/contests regression green.
+
 ### DB layer reviewed (no further P0/P1)
 - `core/db.py`: three engine modes (sqlite NullPool / pgbouncer NullPool + statement_cache=0 /
   standard pool pre_ping size10+overflow5) — correct for transaction-pooled PgBouncer.

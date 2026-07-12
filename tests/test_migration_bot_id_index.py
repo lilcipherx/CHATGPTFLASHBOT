@@ -1,17 +1,16 @@
-"""Regression (Loop L4, finding F2): ``users.bot_id`` must be indexed on the
-ALEMBIC-migrated schema — the production path — not only on the ``create_all`` model
-schema the rest of the suite uses.
+"""Regression + guard (Loop L4, findings F2/F3): every index a model declares
+(``index=True`` / explicit ``Index``) must actually exist on the ALEMBIC-migrated
+schema — the production path — not only on the ``create_all`` model schema the rest of
+the suite builds.
 
-The model declares ``index=True`` on ``users.bot_id`` (FK ``bot_instances.id`` ON
-DELETE SET NULL) for the admin multi-bot dashboard filter (``WHERE bot_id = ?``) and
-to avoid a full ``users`` scan on every ``BotInstance`` delete. Migration 0015 added
-the column and 0037 added the FK, but no migration ever created the index — so a real
-Postgres deploy lacked ``ix_users_bot_id``. ``scripts.check_migrations`` hides this by
-filtering index-only diffs as SQLite-benign, and ``create_all``-based test fixtures
-build the index straight from the model, so only the alembic path exposes the gap.
+Class of bug this guards: a column gets ``index=True`` on the model but no migration
+ever creates the index (F2 = ``users.bot_id`` via 0043; F3 = ``gifts.buyer_id`` /
+``gifts.redeemed_by`` / ``contest_entries.user_id`` via 0044). ``scripts.check_migrations``
+hides it (index-only diffs filtered as SQLite-benign) and ``create_all`` fixtures build
+the index straight from the model, so only the alembic path exposes the drift.
 
-This test runs the real migration chain (subprocess, fresh SQLite — same as CI's
-``alembic upgrade head``) and asserts the index is present at head.
+This upgrades a fresh SQLite DB through the real migration chain (subprocess — same as
+CI's ``alembic upgrade head``) and asserts NO model-declared index is missing.
 """
 from __future__ import annotations
 
@@ -26,8 +25,8 @@ import sqlalchemy as sa
 _REPO = Path(__file__).resolve().parents[1]
 
 
-def test_users_bot_id_indexed_on_migrated_schema() -> None:
-    tmp = Path(tempfile.mkdtemp()) / "mig_bot_id.db"
+def _migrated_indexes() -> dict[str, set[str]]:
+    tmp = Path(tempfile.mkdtemp()) / "mig_index_cov.db"
     env = {
         **os.environ,
         "DATABASE_URL": f"sqlite+aiosqlite:///{tmp.as_posix()}",
@@ -43,14 +42,34 @@ def test_users_bot_id_indexed_on_migrated_schema() -> None:
         text=True,
     )
     assert proc.returncode == 0, f"alembic upgrade head failed:\n{proc.stderr}"
-
     engine = sa.create_engine(f"sqlite:///{tmp.as_posix()}")
     try:
-        names = {ix["name"] for ix in sa.inspect(engine).get_indexes("users")}
+        insp = sa.inspect(engine)
+        return {t: {ix["name"] for ix in insp.get_indexes(t)} for t in insp.get_table_names()}
     finally:
         engine.dispose()
 
-    assert "ix_users_bot_id" in names, (
-        "users.bot_id index missing on the alembic-migrated schema "
-        f"(model declares index=True); found indexes: {sorted(names)}"
+
+def test_all_model_declared_indexes_exist_on_migrated_schema() -> None:
+    import core.models  # noqa: F401 — register every model on Base.metadata
+    from core.models.base import Base
+
+    migrated = _migrated_indexes()
+    missing: list[tuple[str, str, list[str]]] = []
+    for table in Base.metadata.tables.values():
+        if table.name not in migrated:
+            missing.append((table.name, "<TABLE MISSING>", []))
+            continue
+        for idx in table.indexes:
+            if idx.name and idx.name not in migrated[table.name]:
+                missing.append((table.name, idx.name, [c.name for c in idx.columns]))
+
+    assert not missing, (
+        "model declares indexes that no migration creates (they would be absent on a "
+        f"real Postgres deploy): {sorted(missing)}"
     )
+
+
+def test_users_bot_id_indexed_on_migrated_schema() -> None:
+    # Explicit anchor for F2 (the finding that surfaced the whole class).
+    assert "ix_users_bot_id" in _migrated_indexes().get("users", set())

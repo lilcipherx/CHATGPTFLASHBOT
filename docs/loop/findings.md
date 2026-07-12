@@ -98,4 +98,19 @@ Zero-trust: a "fixed" note requires a failing-then-passing test and a verified c
 - Impact: on prod, backfilling `ix_users_bot_id` is CONCURRENT (safe). Remaining risk: minimal —
   additive index only, no runtime-code change.
 
+### F3 (P2 database) — three more model-declared indexes never migrated — FIXED
+- Found by generalising F2: a diagnostic comparing `Base.metadata` indexes vs the alembic-
+  migrated schema surfaced three more of the same class, none created by any migration:
+  `gifts.buyer_id` (index=True — buyer gifting history), `gifts.redeemed_by` (index=True —
+  redeemed-gift lookup), `contest_entries.user_id` (index=True; model comment "AUDIT-15 - add
+  index for admin CRM queries on user_id" added it to the model only). (`contest_entries.
+  contest_id` is covered by the leading col of `uq_contest_entry`; `gifts.code` by its UNIQUE.)
+- Fix: `migrations/versions/0044_missing_model_indexes.py` — same CONCURRENTLY + autocommit_block
+  idempotent/reversible pattern, backfilling all three.
+- Guard: `tests/test_migration_bot_id_index.py` generalised to
+  `test_all_model_declared_indexes_exist_on_migrated_schema` — asserts EVERY model-declared
+  index exists on the migrated schema, so this whole bug class fails CI-equivalently from now on.
+- Tests: coverage test PASSES; head `0044`; 0044 reversible; check_migrations OK; 30-test
+  gifts/contests regression green. Additive indexes only, no runtime-code change.
+
 ---
