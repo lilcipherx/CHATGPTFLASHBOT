@@ -726,3 +726,38 @@ To enable later: set `ALERT_BOT_TOKEN` / `ALERT_CHAT_ID` / `GRAFANA_ADMIN_PASSWO
 `METRICS_TOKEN` into `prometheus.yml`, then
 `docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d` (bind Grafana
 `3000` to `127.0.0.1`).
+
+### Backups — VERIFIED WORKING (2026-07-12, on host)
+
+`chatgptflashbot-backup-1` is producing valid, restorable dumps:
+- Daily retention present (`aiobot-YYYYMMDD-*.sql.gz` for Jul 9/10/11/12 + an extra run today).
+- Latest dump: `gunzip -t` → **OK**; `sha256sum -c <dump>.sha256` → **OK**; contains 70
+  `CREATE TABLE`/`COPY` statements (full schema captured).
+- **Context:** the live DB is nearly empty — `users=6, transactions=0, generation_jobs=0`.
+  This is a **pre-launch production**: the code is production-*ready* (verified) but not yet
+  production-*loaded*, so the ~12 KB dump size is expected, and volume-dependent behaviours
+  (payment throughput, generation backlog, connection saturation) are untested with real data
+  by definition — they belong under "requires production operational verification".
+- **DR consideration (low urgency at current data volume):** dumps live in a Docker volume on
+  the same EC2 instance; there is no off-host / S3 copy, so loss of the instance loses the
+  backups with it. A MinIO/S3 target exists in the stack but backups are not shipped to it.
+
+### Admin API security — VERIFIED ROBUST (2026-07-12)
+
+- **Fail-closed boot gate confirmed WIRED and PASSING in prod.** `Settings._require_prod_secret()`
+  is invoked from the cached `get_settings()` accessor (runs once per process). On this public
+  deploy it necessarily passed, and the prod `.env` was confirmed to carry the required secrets:
+  `ADMIN_JWT_SECRET` (len 32, not the `change-me-in-prod` default), `ENC_SECRET`,
+  `ADMIN_IP_ALLOWLIST`, `METRICS_TOKEN`, `CORS_ORIGINS` — all set. The gate also fails closed on
+  `minioadmin` creds, wildcard CORS, `memory://` Redis, and SQLite in prod.
+- **Webhook forgery surface closed.** Telegram webhook secret is always non-empty (derived from
+  the bot token when unset); `STRIPE_WEBHOOK_SECRET` is absent but Stripe is disabled in prod
+  (`stripe_secret` unset → the `stripe_secret and not stripe_webhook_secret` boot-fail can't
+  trigger, so no forgeable Stripe path ships); YooKassa is IP-gated; Crypto Pay is HMAC-signed.
+- **AuthN/Z primitives sound.** argon2 password hashing + a constant-time dummy-hash verify to
+  neutralise the user-enumeration timing oracle; TOTP 2FA (`valid_window=1`); JWT HS256 with
+  `type`/`scope`/`token_version` (revocation) and `is_active` checks; httpOnly `admin_access`
+  cookie (XSS-resistant) preferred over the `Authorization` header; strict role hierarchy
+  (`support < moderator < admin < superadmin`) via `role_allows`; app-layer IP allow-list with
+  CIDR support layered under Caddy's edge allow-list.
+- No P0–P2 defect. No code change required.
