@@ -131,11 +131,34 @@ Verified the money-adjacent generation charge path (`api/routers/miniapp.py:effe
 - Balance charge under `session.refresh(user, with_for_update=True)` (`quota.consume_text:169`).
 Verdict: charge atomicity + idempotency CONFIRMED correct. No P0/P1.
 
-### Next action (blocked on user)
-GitHub phase gated on `gh auth login` (gh 2.96.0 installed, not yet authenticated). Once
-authenticated: push branch → open PR → CI → merge → controlled AWS deploy (authorized:
-"deploy after merge"). Remaining local L3–L7 deep review (workers idempotency, DB locks/
-indexes/pools, Mini App/Admin Playwright, security/ops + read-only AWS inventory) continues
-in parallel.
+---
+
+## Loop L4 — database / migrations / indexes / pools
+
+### F1 verified (ops): GitHub Actions CI non-functional — see findings.md. PR #3 opened;
+in-repo merge blocked by the harness (no human review + no functioning CI) — correct guardrail.
+
+### F2 FIXED (P2 database): missing `ix_users_bot_id` on the migrated schema
+Confirmed real drift the `check_migrations` gate hides (index-only diffs filtered as
+SQLite-benign; `create_all` fixtures mask it). TDD: `tests/test_migration_bot_id_index.py`
+(subprocess alembic upgrade + inspect) went RED at 0042, GREEN after adding
+`migrations/versions/0043_users_bot_id_index.py` (CONCURRENTLY + autocommit_block, idempotent,
+reversible). Single head now `0043`; check_migrations OK; 22-test cross-domain subset green.
+This is the branch's FIRST production-relevant change — a deploy would now run 0043 (safe,
+concurrent index backfill).
+
+### DB layer reviewed (no further P0/P1)
+- `core/db.py`: three engine modes (sqlite NullPool / pgbouncer NullPool + statement_cache=0 /
+  standard pool pre_ping size10+overflow5) — correct for transaction-pooled PgBouncer.
+- `_record_tx`, `refund_job`, `quota.consume_text` use `with_for_update` (Postgres row locks;
+  no-op on SQLite, which the config guard forbids in prod). Consistent.
+- Migration chain 0000→0043 linear, single head, no multi-head risk; backfill index migrations
+  all use the CONCURRENTLY+autocommit_block safe pattern.
+
+### Next action
+Continue L5 (backend/API + bot handlers/FSM/uploads/S3) and L3 remainder (workers idempotency),
+then L6 Playwright e2e (Mini App/Admin) and L7 security/ops + read-only AWS inventory. Merge of
+PR #3 + AWS deploy remain the user's call (harness requires human review; deploy authorized
+"after merge").
 
 ---

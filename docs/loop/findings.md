@@ -79,4 +79,23 @@ Zero-trust: a "fixed" note requires a failing-then-passing test and a verified c
   miniapp e2e). Only `pip-audit` (venv-blocked locally) and `docker build` were not run locally.
 - Remaining risk: until billing/public/policy is resolved, no automated gate runs on push. P1.
 
+### F2 (P2 database) — missing index on users.bot_id in the migrated schema — FIXED
+- Flow: `core/models/user.py:100` declares `bot_id` with `index=True` + FK
+  `bot_instances.id` `ON DELETE SET NULL`. The index backs the admin multi-bot dashboard filter
+  (`WHERE bot_id = ?`) and the `ON DELETE SET NULL` reverse-scan when a `BotInstance` is deleted.
+- Root cause: migration `0015_multibot` added the column, `0037_round5_schema_fixes` added the FK
+  constraint, but NO migration ever created the index → a real Postgres deploy lacked
+  `ix_users_bot_id`. Hidden because `scripts.check_migrations` filters index-only diffs as
+  SQLite-benign, and the suite's `create_all` fixtures build the index straight from the model.
+- Reproduction (failing test, RED): `tests/test_migration_bot_id_index.py` runs the real alembic
+  chain (subprocess, fresh SQLite) and asserts `ix_users_bot_id` on `users` — failed at 0042
+  (`found: ix_users_is_banned, ix_users_sub_expires`).
+- Fix: `migrations/versions/0043_users_bot_id_index.py` — idempotent, `CREATE INDEX
+  CONCURRENTLY` on Postgres inside an `autocommit_block` (mirrors the 0004/0007/0021/0023 safe
+  backfill pattern; no long write-lock on the hot `users` table), plain create on SQLite.
+- Tests: target test now PASSES; `alembic heads` single = `0043`; upgrade→downgrade→upgrade
+  reversible; `check_migrations` still OK; 22-test cross-domain subset green.
+- Impact: on prod, backfilling `ix_users_bot_id` is CONCURRENT (safe). Remaining risk: minimal —
+  additive index only, no runtime-code change.
+
 ---
