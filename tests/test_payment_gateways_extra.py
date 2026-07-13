@@ -104,6 +104,33 @@ async def test_stripe_refund_success_and_missing_intent(monkeypatch):
         await StripeProvider().refund(gateway_tx_id="cs_1", amount=500)
 
 
+async def test_stripe_verify_webhook_paid_captures_saved_method(monkeypatch):
+    import stripe
+    monkeypatch.setattr(settings, "stripe_secret", "sk_test_x")
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
+    event = {"type": "checkout.session.completed", "data": {"object": {
+        "id": "cs_1", "payment_status": "paid", "amount_total": 500,
+        "metadata": {"payload": "sub:1:premium:1"},
+        "customer": "cus_1", "payment_intent": "pi_1",
+    }}}
+    monkeypatch.setattr(stripe.Webhook, "construct_event", lambda b, s, secret: event)
+    monkeypatch.setattr(stripe.PaymentIntent, "retrieve", lambda pid: _ns(payment_method="pm_1"))
+    ev = StripeProvider().verify_webhook({"stripe-signature": "t=1,v1=x"}, b"{}")
+    assert ev is not None and ev.gateway_tx_id == "cs_1" and ev.amount == 500
+    # a sub checkout captures the vaulted method for auto-renewal
+    assert ev.saved_method is not None and ev.saved_method.token == "pm_1"
+
+
+def test_stripe_verify_webhook_unpaid_is_none(monkeypatch):
+    import stripe
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "whsec_test")
+    event = {"type": "checkout.session.completed",
+             "data": {"object": {"payment_status": "unpaid"}}}
+    monkeypatch.setattr(stripe.Webhook, "construct_event", lambda b, s, secret: event)
+    # `completed` before funds clear → not activated
+    assert StripeProvider().verify_webhook({"stripe-signature": "x"}, b"{}") is None
+
+
 # ---------------------------------------------------------------------- fake httpx
 class _FakeResp:
     def __init__(self, payload):

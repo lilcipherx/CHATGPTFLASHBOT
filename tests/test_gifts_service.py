@@ -58,6 +58,27 @@ async def test_redeem_credits_success_then_already_used():
         assert ok2 is False
 
 
+async def test_redeem_sub_and_pack_kinds():
+    async with SessionFactory() as s:
+        gsub = await gifts.create_gift(
+            s, buyer_id=5400, kind="sub", product="premium", months=1, qty=None,
+            gateway="stars", amount=0, gateway_tx_id="gs1",
+        )
+        r1, _ = await get_or_create_user(s, 5401)
+        ok, _msg = await gifts.redeem_gift(s, gsub.code, r1)
+        assert ok is True
+        await s.refresh(r1)
+        assert r1.sub_expires is not None  # sub activated
+
+        gpack = await gifts.create_gift(
+            s, buyer_id=5400, kind="pack", product="image_pack", months=None, qty=5,
+            gateway="stars", amount=0, gateway_tx_id="gp1",
+        )
+        r2, _ = await get_or_create_user(s, 5402)
+        ok2, _msg2 = await gifts.redeem_gift(s, gpack.code, r2)
+        assert ok2 is True
+
+
 async def test_redeem_own_gift_refused():
     async with SessionFactory() as s:
         buyer, _ = await get_or_create_user(s, 5300)
