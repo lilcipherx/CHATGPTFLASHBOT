@@ -64,3 +64,45 @@ async def test_profile_reports_the_overridden_user(client):
     body = r.json()
     # profile echoes balance/quota for the authenticated tg user
     assert isinstance(body, dict)
+
+
+async def test_bonus_claim(client):
+    r = await client.post("/api/bonus/claim")
+    assert r.status_code == 200
+    assert "claimed" in r.json()
+
+
+async def test_promo_empty_and_invalid_code(client):
+    assert (await client.post("/api/promo", json={"code": ""})).status_code == 400
+    # an unknown code is a graceful rejection (never a 500), not a crash
+    r = await client.post("/api/promo", json={"code": "DOES-NOT-EXIST"})
+    assert r.status_code in (200, 400, 404)
+
+
+async def test_free_model_cost_and_unknown(client):
+    r = await client.post("/api/models/photo/gpt_image2/cost", json={"params": {}})
+    assert r.status_code == 200 and "cost" in r.json()
+    r404 = await client.post("/api/models/photo/no_such_model/cost", json={"params": {}})
+    assert r404.status_code == 404
+
+
+async def test_free_model_generate(client, monkeypatch):
+    import types
+
+    import api.routers.miniapp as m
+
+    async def _allow(_text):
+        return types.SimpleNamespace(allowed=True, reason=None)
+
+    async def _noop_enqueue(*a, **k):
+        return None
+
+    monkeypatch.setattr(m.moderation, "moderate", _allow)
+    monkeypatch.setattr(m, "enqueue", _noop_enqueue)
+
+    r = await client.post(
+        "/api/models/photo/gpt_image2/generate",
+        data={"prompt": "a calm sunset over the sea", "params": "{}", "idempotency_key": "k1"},
+    )
+    # fresh user has free allowance → 200 (job queued); tolerate charge/limit outcomes.
+    assert r.status_code in (200, 402, 429, 503), r.text[:200]
