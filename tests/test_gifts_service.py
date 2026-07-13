@@ -79,6 +79,41 @@ async def test_redeem_sub_and_pack_kinds():
         assert ok2 is True
 
 
+async def test_redeem_unknown_kind_and_billing_noop(monkeypatch):
+    async with SessionFactory() as s:
+        # unknown gift kind → the else branch rejects it
+        bad = await gifts.create_gift(
+            s, buyer_id=5500, kind="mystery", product="x", months=None, qty=1,
+            gateway="stars", amount=0, gateway_tx_id="gu1",
+        )
+        u1, _ = await get_or_create_user(s, 5501)
+        ok, _m = await gifts.redeem_gift(s, bad.code, u1)
+        assert ok is False
+
+        # each billing grant reporting a no-op (duplicate) → gift must NOT be marked
+        # used (buyer keeps the code, recipient got nothing) — the not-ok branch per kind
+        from core.services import billing
+
+        async def _noop(*a, **k):
+            return False
+        monkeypatch.setattr(billing, "add_credits", _noop)
+        monkeypatch.setattr(billing, "activate_subscription", _noop)
+        monkeypatch.setattr(billing, "add_pack_credits", _noop)
+
+        for i, (kind, product, qty, months) in enumerate([
+            ("credits", "credits", 5, None),
+            ("sub", "premium", None, 1),
+            ("pack", "image_pack", 5, None),
+        ]):
+            g = await gifts.create_gift(
+                s, buyer_id=5500, kind=kind, product=product, months=months, qty=qty,
+                gateway="stars", amount=0, gateway_tx_id=f"gu-noop-{i}",
+            )
+            u, _ = await get_or_create_user(s, 5510 + i)
+            ok_i, _mi = await gifts.redeem_gift(s, g.code, u)
+            assert ok_i is False
+
+
 async def test_redeem_own_gift_refused():
     async with SessionFactory() as s:
         buyer, _ = await get_or_create_user(s, 5300)
