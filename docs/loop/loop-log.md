@@ -209,9 +209,31 @@ P0 not reproduced); `ENV=prod` + `WEBHOOK_BASE_URL` set → `is_public_deploy=Tr
 active → **empirically confirms L2 C1/C3 safe on the real prod**. Minor P3: some containers still
 on `:latest` (align on next --force-recreate); `ufw` inactive (SG is perimeter).
 
-### Next action
-L6 Playwright e2e (Mini App real browser scenarios; Admin has no e2e harness). Then converge:
-full local gate rerun green → single final merge/deploy gate (held per user). Merge of PR #3
-still requires human review (harness) + owner CI restore for a real gate.
+---
+
+## Loop L6 + convergence
+
+### L6 Mini App e2e
+Added `miniapp/e2e/responsive.spec.ts` — authenticated shell at 320x568 + 768x1024, asserts nav
+visible, no pageerror, no horizontal overflow (`scrollWidth <= viewport`). **6 e2e pass.** No
+layout bug. Admin has no Playwright harness (unit+tsc+build cover it) — left as a recommendation.
+
+### Convergence gate (`scripts/ci_local.sh`)
+Ran the full local mirror end-to-end. All PRODUCT gates green: ruff check PASS, pytest+coverage
+PASS, bandit PASS, miniapp+admin (vitest/tsc/build) PASS, miniapp e2e PASS; ruff-format + mypy +
+pip-audit informational (as designed). The one blocking FAIL was a bug in the SCRIPT itself —
+the migrations step reused `$DATABASE_URL` (populated by the pytest step via create_all) so
+`alembic upgrade head` hit "table admin_audit_log already exists". ci.yml avoids this via isolated
+jobs; fixed the script to use a dedicated throwaway DB for the migrations step. Fix verified: the
+migrations step now passes (rc=0) even with a stale ci_local.db present. Not a product defect —
+alembic was verified green independently many times this loop.
+
+### Final gate
+See `docs/loop/final-merge-deploy-gate.md` — single consolidated go/no-go. Merge/deploy HELD per
+instruction: PR #3 needs human review (harness) and F1 (CI) needs owner action to restore a real
+CI gate; `scripts/ci_local.sh` is the compensating gate meanwhile. Deploy (after merge) applies
+0043/0044 per `migration-runbook.md`.
+
+### Loop status: CONVERGED (local). Awaiting owner: CI restore (F1) → merge PR #3 → deploy.
 
 ---

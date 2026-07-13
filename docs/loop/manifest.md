@@ -11,20 +11,21 @@ the verified change (or `—` for review-only).
 
 | Area | Files | Loop 0 status | Owning domain loop |
 |------|-------|---------------|--------------------|
-| `core/payments/` (base, service, yookassa, stripe, crypto, tribute) | 6 | pending | L1 payments |
-| `core/services/` billing/checkout/refunds/credits/pricing/packs/promos/loyalty/daily_bonus/referrals/gifts | ~11 | pending | L1 payments |
-| `api/routers/webhooks.py` | 1 | reviewed (discovery) | L1 payments |
+| `core/payments/` (base, service, yookassa, stripe, crypto, tribute) | 6 | reviewed — webhook sig verify clean | L1 payments |
+| `core/services/` billing/checkout/refunds/credits/pricing/packs/promos/loyalty/daily_bonus/referrals/gifts | ~11 | reviewed — idempotency/refund race-safe | L1 payments |
+| `api/routers/webhooks.py` | 1 | reviewed — dedup + idempotent + sig | L1 payments |
 | `bot/handlers/premium.py, packs_buy.py, gift.py, promo.py` | 4 | reviewed (discovery) | L1 payments |
 | `core/services/admin_auth.py, crypto.py`, `api/admin/auth.py`, `api/admin/deps.py`, `api/deps.py`, `core/config.py` | 6 | reviewed (C1/C3 dismissed fail-closed) | L2 auth/RBAC |
 | `api/admin/*` routers (RBAC matrix) | ~24 | reviewed — all guarded (test_admin_rbac_coverage) | L2 auth/RBAC |
-| `core/services/ai_routing.py, quota.py, gate.py, ratelimit.py, media_dispatch.py`, `core/ai_router/*` | ~20 | pending | L3 generation |
-| `workers/*` (ARQ tasks + beat) | 16 | pending | L3 generation |
-| `core/db.py`, `core/models/*`, `migrations/versions/*` | ~46 | reviewed head/drift only | L4 database |
-| `api/routers/miniapp.py, gallery.py, images.py, carousel.py` | 4 | pending | L5 backend/API |
+| `core/services/ai_routing.py, quota.py, gate.py, ratelimit.py, media_dispatch.py`, `core/ai_router/*` | ~20 | reviewed — charge atomicity clean | L3 generation |
+| `workers/*` (ARQ tasks + beat) | 16 | reviewed — claim/refund idempotent | L3 generation |
+| `core/db.py`, `core/models/*`, `migrations/versions/*` | ~46 | reviewed — F2/F3 index drift FIXED (0043/0044) | L4 database |
+| `api/routers/miniapp.py, gallery.py, images.py, carousel.py` | 4 | reviewed — charge/upload/SSRF clean | L5 backend/API |
 | `bot/handlers/*` (remaining), `bot/middlewares/*`, `bot/keyboards/*`, `bot/states/*` | ~40 | reviewed order/structure | L5 bot |
-| `miniapp/src/*` (pages, components, api) | ~44 | pending (Playwright) | L6 Mini App |
-| `admin/src/*` (pages, components, api) | ~57 | pending (Playwright) | L6 Admin |
-| `Dockerfile`, `docker-compose*.yml`, `Caddyfile`, `.github/workflows/*`, `monitoring/*`, `scripts/*.sh` | ~20 | reviewed config only | L7 security/ops |
+| `miniapp/src/*` (pages, components, api) | ~44 | reviewed — e2e 6 (incl. responsive) | L6 Mini App |
+| `admin/src/*` (pages, components, api) | ~57 | reviewed — vitest 26 + tsc + build; no e2e harness (rec) | L6 Admin |
+| `core/services/storage.py` (uploads/S3/SSRF) | 1 | reviewed — SSRF guard verified | L5 |
+| `Dockerfile`, `docker-compose*.yml`, `Caddyfile`, `.github/workflows/*`, `monitoring/*`, `scripts/*.sh` | ~20 | reviewed — F1 CI (owner), AWS inventory verified | L7 security/ops |
 | `tests/*` | 155 | baseline green (905 passed) | all loops |
 
 ## Per-file detail

@@ -50,8 +50,13 @@ run_block "pytest + coverage" 1 bash -c \
   "'$PY' -m pytest --cov=core --cov=api --cov=bot --cov=workers --cov-report=term-missing -q && '$PY' -m coverage report --fail-under=67"
 
 # --- migrations ---
+# ci.yml runs this in an isolated job with a fresh checkout/DB. Mirror that: use a
+# DEDICATED throwaway DB so the create_all schema left in $DATABASE_URL by the pytest
+# step above can't collide with `alembic upgrade head` ("table already exists").
 run_block "alembic upgrade head + check_migrations" 1 bash -c \
-  "'$PY' -m alembic upgrade head && '$PY' -m scripts.check_migrations"
+  "rm -f ci_local_mig.db; export DATABASE_URL='sqlite+aiosqlite:///./ci_local_mig.db'; \
+   '$PY' -m alembic upgrade head && '$PY' -m scripts.check_migrations; rc=\$?; \
+   rm -f ci_local_mig.db; exit \$rc"
 
 # --- security ---
 run_block "bandit" 1 "$PY" -m bandit -r core api bot workers -ll -q
