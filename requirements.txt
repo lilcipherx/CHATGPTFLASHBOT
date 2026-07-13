@@ -36,7 +36,7 @@ yookassa==3.5.0
 stripe==11.4.1
 
 # --- Image upload validation (Mini App effects) ---
-pillow==12.2.0
+pillow==12.3.0
 
 # --- Document extraction (Premium docs) ---
 pypdf==5.1.0
@@ -48,8 +48,8 @@ python-pptx==1.0.2
 structlog==24.4.0
 sentry-sdk==2.19.2
 fluent.runtime==0.4.0
-python-multipart==0.0.20
+python-multipart==0.0.31
 argon2-cffi==23.1.0
 pyotp==2.9.0
-pyjwt==2.10.1
-cryptography==44.0.0
+pyjwt==2.13.0
+cryptography==44.0.1
