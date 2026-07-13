@@ -4,18 +4,22 @@ Single consolidated go/no-go for the Loop Engineering branch. **Merge and deploy
 explicit owner confirmation** (per instruction). GitHub CI is not bypassed — it is blocked at the
 account level (see F1); `scripts/ci_local.sh` is the adopted temporary merge-gate.
 
-## What's in the branch (delta vs `main`)
+**HEAD: `82e1d9a`** · PR #3 `mergeable=MERGEABLE`, `mergeState=CLEAN` · working tree clean.
+
+## What's in the branch (delta vs `origin/main` — 37 files, verified `git diff --name-only`)
 - **Production-relevant (deploy changes the schema):** migrations `0043_users_bot_id_index` +
   `0044_missing_model_indexes` — 4 additive indexes closing model↔migration drift (F2/F3).
-- **Tests only (NOT shipped in the Docker image):** ~20 new `tests/test_*.py` files (money/auth
-  critical-domain coverage) + Admin Playwright e2e harness (`admin/playwright.config.ts`,
-  `admin/e2e/*`) + `miniapp/e2e/responsive.spec.ts`.
-- **Infra/CI:** `scripts/ci_local.sh` (local CI mirror); `.github/workflows/ci.yml` patched to
-  run on a self-hosted `flashbot-ci` runner + skip the heavy docker build on this branch.
-- **Docs:** `docs/loop/*`.
-- Runtime application code (api/bot/core/workers) unchanged EXCEPT the two additive migrations —
-  verify with `git diff --name-only main..HEAD` (migrations + tests + admin-harness + scripts +
-  workflow + docs only).
+- **Tests only (NOT shipped in the Docker image, 20 files):** `tests/test_*.py` money/auth
+  critical-domain coverage + Admin Playwright e2e harness (`admin/playwright.config.ts`,
+  `admin/e2e/{auth,rbac}.spec.ts`, `admin/package.json`+lock) + `miniapp/e2e/responsive.spec.ts`.
+- **Infra:** `scripts/ci_local.sh` (local CI mirror).
+- **Docs:** `docs/loop/*` (8 files).
+- **`.github/workflows/ci.yml`: reverted to `origin/main`** — the self-hosted-runner workaround was
+  removed from the PR (the runner lived on the prod host and Actions is account-blocked anyway; a
+  dedicated CI VM will host a runner if CI is restored). ci.yml is NOT in the branch delta.
+- **NO production runtime code** (api/bot/core/workers) changed except the two additive migrations
+  — verified: `git diff --name-only origin/main..HEAD | grep -E '^(api|bot|core|workers)/' | grep
+  -v migrations/` → empty.
 
 ## Verification status (measured, current HEAD)
 - **Coverage targets MET:** global **70.36%** (10059/14296, ≥70) · critical-domain **85.2%**
@@ -24,10 +28,10 @@ account level (see F1); `scripts/ci_local.sh` is the adopted temporary merge-gat
   coverage crit 85.2%/global 70.36% · bandit exit 0 · alembic single head `0044` +
   `check_migrations` no drift · miniapp (vitest 17/tsc/build/e2e 6) · admin (vitest 26/tsc/build/
   e2e 4). Manifest: 627 files / 175 test files / 983 test functions / 45 migrations.
-- **`scripts/ci_local.sh` (adopted gate) fresh run on HEAD `71faa2f` — ALL BLOCKING GATES PASSED**
-  (exit 0): ruff · pytest 1014 passed / coverage TOTAL 70% (ratchet 67) · alembic upgrade head +
-  check_migrations no drift · bandit · miniapp (npm ci/vitest/tsc/build/e2e) · admin (npm ci/
-  vitest/tsc/build). Informational only (non-blocking): ruff-format, mypy, pip-audit (venv-blocked).
+- **`scripts/ci_local.sh` (adopted gate) fresh run on HEAD `82e1d9a` — ALL BLOCKING GATES PASSED**
+  (exit 0): ruff · pytest **1014 passed** / coverage TOTAL **70%** (ratchet 67) · alembic upgrade
+  head + check_migrations no drift · bandit · miniapp (npm ci/vitest/tsc/build/e2e) · admin (npm
+  ci/vitest/tsc/build). Informational only (non-blocking): ruff-format, mypy, pip-audit (venv-blocked).
 - `pip-audit` blocked in the local venv (missing stdlib `venv`); `docker build` not run locally.
 - Domains reviewed clean (no P0/P1): L1 payments (idempotency/refund/webhook-sig), L2 auth/RBAC,
   L3 generation charge + workers idempotency, L4 database (F2/F3 FIXED), L5 uploads/S3/SSRF.
@@ -40,8 +44,10 @@ account level (see F1); `scripts/ci_local.sh` is the adopted temporary merge-gat
   self-hosted smoke workflow produced `startup_failure` with **0 jobs**, and the runner never went
   busy. GitHub cannot dispatch ANY run. So the block is account/billing-level, not a workflow-file
   issue and not runner availability.
-- Runner is currently **stopped** (systemd `inactive`, still `enabled`/installed) per owner choice
-  — ready to `start` the moment the account block is lifted.
+- Runner is now **stopped AND disabled** (systemd `is-active=inactive`, `is-enabled=disabled`) —
+  will NOT auto-start on reboot. Unit file + `/home/ghrunner/actions-runner` kept intact (not
+  removed). The ci.yml self-hosted patch was reverted out of the PR; a dedicated CI VM should host
+  the runner if/when CI is restored (keeping CI off the production host).
 - **Only the owner can unblock:** resolve GitHub billing/payment, OR make the repo public. Neither
   is doable from code. Until then, `scripts/ci_local.sh` is the gate.
 
@@ -64,8 +70,20 @@ This deploy DOES change the schema (0043/0044). Follow `docs/loop/migration-runb
 4. Post-deploy: 4 new indexes VALID on `users`/`gifts`/`contest_entries`; `/health/ready` OK.
 5. Rollback: app-only (old app runs fine against the indexed schema) via `.predeploy.*` snapshot.
 
+## Residual risk (at HEAD `82e1d9a`)
+- **Merge:** LOW. No production runtime code changes; the only shippable change is two additive,
+  concurrent-safe indexes. Tests/harness/docs/ci_local.sh don't reach the runtime image.
+- **Deploy (schema):** LOW but non-zero — `CREATE INDEX CONCURRENTLY` can leave an INVALID index if
+  interrupted (recovery in `migration-runbook.md`). Backup + app-only rollback covered.
+- **CI gate:** MEDIUM process risk — the merge would be gated by `ci_local.sh` (local), not GitHub
+  CI, because Actions is account-blocked. `ci_local.sh` covers the same gate set except `pip-audit`
+  (venv-blocked locally) and `docker build` (not run). These two are unverified until CI is
+  restored on a proper runner/VM.
+- **Docker image build:** UNVERIFIED locally (`docker compose build` not run). If desired before
+  deploy, build once on a non-prod machine or the future CI VM.
+
 ## Recommendation
-Merge is LOW risk (additive indexes + tests + workflow/docs). Deploy is a safe concurrent index
+Merge is LOW risk (additive indexes + tests + docs; ci.yml back to main). Deploy is a safe concurrent index
 backfill. Suggested order: owner unblocks Actions (public repo or billing) OR accepts ci_local.sh
 as the gate → confirm ci_local.sh green → **explicit merge confirmation** → merge PR #3 →
 **explicit deploy confirmation** → deploy per runbook. Nothing proceeds without those confirmations.
