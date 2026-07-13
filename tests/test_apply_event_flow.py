@@ -47,6 +47,29 @@ async def test_apply_event_credits_applies_and_runs_hooks(monkeypatch):
         assert dup is None
 
 
+async def test_apply_event_sub_and_avatar(monkeypatch):
+    import core.bot_client as bc
+
+    class _FakeBot:
+        async def send_message(self, *a, **k):
+            return None
+    monkeypatch.setattr(bc, "get_bot", lambda: _FakeBot())
+
+    async with SessionFactory() as s:
+        user, _ = await get_or_create_user(s, 6200)
+        # subscription: base=4 fields + quoted minor; premium 1 month
+        sub = PaymentEvent(payload="sub:6200:premium:1:900", gateway="stripe",
+                           gateway_tx_id="sx1", amount=900, status="paid")
+        assert await apply_event(s, sub) == 6200
+        await s.refresh(user)
+        assert user.sub_expires is not None
+
+        # avatar one-time: base=2 fields + quoted minor
+        av = PaymentEvent(payload="avatar:6200:700", gateway="stripe",
+                          gateway_tx_id="ax1", amount=700, status="paid")
+        assert await apply_event(s, av) == 6200
+
+
 async def test_apply_event_amount_mismatch_rejected():
     async with SessionFactory() as s:
         await get_or_create_user(s, 6101)

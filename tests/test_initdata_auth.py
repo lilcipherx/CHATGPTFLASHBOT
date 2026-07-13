@@ -90,3 +90,14 @@ async def test_current_webapp_user_dev_bypass(monkeypatch):
     with pytest.raises(HTTPException) as e:
         await deps.current_webapp_user(x_init_data="")
     assert e.value.status_code == 401
+
+
+async def test_current_webapp_user_bypass_on_bad_initdata(monkeypatch):
+    # A malformed initData string that fails verification also falls back to the dev
+    # user when the bypass is enabled (non-public dev/test).
+    monkeypatch.setattr(settings, "dev_webapp_bypass", True)
+    monkeypatch.setattr(settings, "env", "test")
+    monkeypatch.setattr(settings, "public_deploy", False)
+    monkeypatch.setattr(settings, "webhook_base_url", "")
+    got = await deps.current_webapp_user(x_init_data="not-valid-initdata")
+    assert got["id"] == deps.DEV_WEBAPP_USER["id"]
