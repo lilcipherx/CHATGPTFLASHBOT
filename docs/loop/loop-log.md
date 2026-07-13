@@ -8,6 +8,42 @@ Branch: `claude/loop-engineering` (from `main` @ `bb44014ed2c4765c47197dad51df52
 
 ---
 
+## Coverage push + global convergence (2026-07-13)
+
+### Coverage targets — BOTH MET (measured, full suite)
+- **Global coverage: 70.36%** (10059/14296) — target ≥70% ✓ (baseline 68.10%).
+- **Critical-domain coverage: 85.2%** (2616/3070) — target ≥85% ✓ (baseline 75.4%).
+  - payments 87.6% · billing/credits/refunds 88.2% · quota/gen 87.6% · auth/rbac 87.9% ·
+    webhooks/miniapp 74.7%.
+- Suite: **1014 passed, 0 failed** (baseline 905). ~110 tests added across the money/auth
+  critical domains (gateways, service dispatcher, gate, gifts, referrals, billing refund/promo,
+  initData, webhook routes, Mini App read+generate API, admin login/2FA/refresh/logout, quota,
+  apply_event, fernet crypto) + an Admin Playwright e2e harness (login gate, login→shell, RBAC).
+
+### Manifest counts (verified via git ls-files @ this branch HEAD)
+- tracked files: 627 · test files: 175 · test functions: 983 · migration revisions: 45.
+
+### Convergence Loop 1 — all gates GREEN (fresh evidence)
+- `ruff check .` — All checks passed
+- `pytest` — 1014 passed / 0 failed; coverage crit 85.2% / global 70.36% (ratchet 67)
+- `bandit -r core api bot workers -ll -q` — exit 0
+- `alembic heads` = `0044_missing_model_indexes`; `upgrade head` OK; `check_migrations` no drift
+- miniapp: vitest 17 · tsc clean · build · Playwright e2e 6 passed
+- admin: vitest 26 · tsc clean · build · Playwright e2e 4 passed
+
+### Convergence Loop 2 — independent re-run (fresh DB, separate invocation) — GREEN
+- `pytest` — **1014 passed / 0 failed** (identical to Loop 1 → no order/flake dependence)
+- coverage — **critical 85.2%** (2615/3070) · **global 70.36%** (identical to Loop 1)
+- `ruff check .` clean · `bandit` exit 0 · `alembic upgrade head` + `check_migrations` no drift
+- manifest counts identical: 627 files / 175 test files / 983 test functions / 45 migrations
+- (Loop-1 critical was 2616 vs Loop-2 2615 — a single non-deterministic best-effort branch
+  (buyer-notify/timing); both round to 85.2% and both clear the ≥85% gate.)
+
+Both independent global convergence loops are green and reproducible; the coverage gates
+(global ≥70%, critical ≥85%) hold across both runs.
+
+---
+
 ## Loop 0 — Independent discovery + baseline
 
 Date: 2026-07-13. Base SHA: `bb44014` (== `origin/main`).

@@ -6,7 +6,8 @@ Go/no-go gates for staging + production. A box is checked ONLY with verified evi
 ## Local quality gates (verified @ bb44014, Loop 0)
 - [x] `ruff check .` — PASS
 - [x] `pytest -q` — 905 passed / 0 failed
-- [x] coverage `--fail-under=67` — PASS, TOTAL 68% (14296 stmt / 4560 miss)
+- [x] coverage `--fail-under=67` — PASS. **Global 70.36%** (10059/14296); **critical-domain 85.2%**
+      (2616/3070) after the coverage push. Suite 1014 passed.
 - [x] `bandit -r core api bot workers -ll -q` — exit 0
 - [ ] `pip-audit -r requirements.txt` — BLOCKED locally (venv module missing); rely on CI
 - [x] `alembic upgrade head` + `check_migrations` — PASS, no drift, single head 0042
