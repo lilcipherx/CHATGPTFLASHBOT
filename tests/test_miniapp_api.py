@@ -14,7 +14,22 @@ from api.deps import current_webapp_user
 from api.main import app
 from core.db import SessionFactory, engine
 from core.models import Base
+from core.services.credits import grant
 from core.services.users import get_or_create_user
+
+
+def _mock_gen(monkeypatch):
+    import types
+
+    import api.routers.miniapp as m
+
+    async def _allow(_t):
+        return types.SimpleNamespace(allowed=True, reason=None)
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(m.moderation, "moderate", _allow)
+    monkeypatch.setattr(m, "enqueue", _noop)
 
 _TG = {"id": 5555, "username": "tester", "language_code": "en", "first_name": "T"}
 
@@ -106,3 +121,39 @@ async def test_free_model_generate(client, monkeypatch):
     )
     # fresh user has free allowance → 200 (job queued); tolerate charge/limit outcomes.
     assert r.status_code in (200, 402, 429, 503), r.text[:200]
+
+
+async def test_generate_unknown_model_404(client, monkeypatch):
+    _mock_gen(monkeypatch)
+    r = await client.post("/api/models/photo/no_such_model/generate",
+                          data={"prompt": "x", "idempotency_key": "u1"})
+    assert r.status_code == 404
+
+
+async def test_generate_banned_403(client, monkeypatch):
+    _mock_gen(monkeypatch)
+    async with SessionFactory() as s:
+        user, _ = await get_or_create_user(s, _TG["id"])
+        user.is_banned = True
+        await s.commit()
+    r = await client.post("/api/models/photo/gpt_image2/generate",
+                          data={"prompt": "x", "idempotency_key": "b1"})
+    assert r.status_code == 403
+
+
+async def test_video_generate_no_credits_402(client, monkeypatch):
+    _mock_gen(monkeypatch)
+    # video has no free weekly slot → charged to ✨; a fresh user has none → 402.
+    r = await client.post("/api/models/video/seedance/generate",
+                          data={"prompt": "x", "idempotency_key": "v1"})
+    assert r.status_code == 402
+
+
+async def test_video_generate_with_credits_200(client, monkeypatch):
+    _mock_gen(monkeypatch)
+    async with SessionFactory() as s:
+        user, _ = await get_or_create_user(s, _TG["id"])
+        await grant(s, user, 100)
+    r = await client.post("/api/models/video/seedance/generate",
+                          data={"prompt": "x", "idempotency_key": "v2"})
+    assert r.status_code == 200
