@@ -1,9 +1,0 @@
-name: selfhosted-smoke
-on:
-  push:
-    branches: [claude/loop-engineering]
-jobs:
-  smoke:
-    runs-on: [self-hosted, linux, x64, flashbot-ci]
-    steps:
-      - run: echo "hello from $(hostname) as $(whoami)"
