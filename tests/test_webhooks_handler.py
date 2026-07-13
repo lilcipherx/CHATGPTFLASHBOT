@@ -12,7 +12,7 @@ from starlette.responses import Response
 
 from api.routers import webhooks
 from core.config import settings
-from core.db import SessionFactory, engine
+from core.db import engine
 from core.models import Base
 from core.payments.base import PaymentError, PaymentEvent, PaymentRetryable
 
