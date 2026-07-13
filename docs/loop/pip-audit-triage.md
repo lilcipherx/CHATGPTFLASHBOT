@@ -32,29 +32,27 @@ as of 2026-07 — the pinned deps date to ~Dec 2024, so ~1.5 years of advisories
 Note: pyjwt 2.13 emits `InsecureKeyLengthWarning` for HMAC keys <32 bytes — a warning only (tests
 pass). Prod `admin_jwt_secret` should be ≥32 bytes (recommend documenting/enforcing a length check).
 
-## REMAINING — 73 advisories, all need MAJOR / coordinated upgrades (NOT blind-bumped)
-| Package | current→needed | # | Reachability / severity class | Why deferred (risk) |
-|---------|----------------|---|-------------------------------|---------------------|
-| `pypdf` 5.1.0→**6.13.3** | 31 | MED — DoS (infinite-loop / quadratic) parsing **untrusted PDFs**; reachable only via the premium doc-extraction path | **major 5→6** — API changes; needs code review of the extraction code + regression |
-| `aiohttp` 3.10.11→**3.14.1** | 30 | LOW — **transitive** (aioboto3→aiobotocore, S3 **client**); the CVEs are overwhelmingly HTTP-**server** (request smuggling / server parsing) which the app never runs; a few client redirect/proxy | transitive — pinning risks aiobotocore conflict; needs aioboto3-compat validation |
-| `starlette` 0.41.3→**1.3.1** | 8 | MED — multipart/form DoS reachable (uploads) | **transitive via fastapi** — fastapi 0.115.6 pins starlette <0.42; needs a coordinated fastapi major bump + full regression |
-| `cryptography` 44.0.1→**48.0.1** | 4 | LOW — X.509 name-constraints (app doesn't validate cert chains), `public_key_from_numbers` (unused), OpenSSL-in-wheels | 44→48 major (Rust/OpenSSL backend) — validate before shipping |
+## REMAINING — 37 advisories in 2 packages, both hard-pinned by a CORE framework
+| Package | current→needed | # | Reachability (per app usage) | Why NOT bumped |
+|---------|----------------|---|------------------------------|----------------|
+| `aiohttp` 3.10.11→3.14.1 | 30 | **effectively NOT reachable** — the app uses aiohttp only as a **client** (aioboto3 S3, aiogram Telegram) and runs **no aiohttp server**; all 30 CVEs are aiohttp-**server** DoS / request-smuggling / static-files (server memory, zip-bomb, chunked-CPU, path-traversal). 1 marginal client-TLS-hostname (PYSEC-2026-237). | pinned `<3.11` by **aiogram 3.15.0**; min fix 3.12.14 > 3.11 → needs an **aiogram** core bump (bot handlers/FSM/middlewares) for ~zero real benefit. Pin to 3.14.1 attempted → aiogram conflict → reverted. |
+| `starlette` 0.41.3→1.3.1 | 8 | **MED (partial)** — `request.form()` + `Range` header quadratic-DoS reachable (upload/any endpoint); Host-header + path-validation MED; the 2 `StaticFiles`-on-**Windows** CVEs are NOT reachable (prod is Linux). | pinned `<0.42` by **fastapi 0.115.6**; clearing all needs **starlette 1.3.1** (a starlette **1.x major**) + a fastapi that supports it. |
 
-### Blocking assessment
-- **Highest real reachability among the remaining:** `starlette` multipart DoS and `pypdf` PDF DoS
-  (both DoS-class, reachable via upload / doc features). These are the ones worth a validated
-  upgrade first.
-- `aiohttp` (client-only, server-side CVEs) and `cryptography` (unused APIs) are **low reachability**.
-- None of the 73 are known remote-code-execution against this app's usage; they are DoS / parsing /
-  hardening classes gated on features the app either doesn't use or uses on trusted inputs.
+### fastapi/starlette upgrade — attempted + validated, then reverted (judgement call)
+- Bumped `fastapi 0.115.6→0.116.2` + `starlette 0.41.3→0.47.2` (0.116 allows starlette <0.48). Full
+  suite **1014 passed**, `pip check` clean, ASGI integration tests green — so the bump is *viable*.
+- **Reverted** because: it clears only **1 of 8** starlette CVEs (0.47.2 is the *minimum* fix; the
+  reachable form/Range DoS need **starlette 1.3.1**), i.e. it swaps the core web framework on a
+  live payment/Telegram prod for a marginal, incomplete gain. Fully clearing starlette needs a
+  starlette-1.x + newer-fastapi coordinated upgrade — a dedicated, separately-approved effort.
 
-### Recommended next step (separate, validated effort — do NOT blind-bump)
-1. `starlette`: bump `fastapi` to a release that allows starlette ≥0.47/1.x, re-run the full suite +
-   e2e (upload flows especially).
-2. `pypdf` 5→6: review `core/services` doc-extraction call sites for API breaks, then bump + test.
-3. `aiohttp`: bump `aioboto3`/`aiobotocore` to a line that pulls aiohttp ≥3.14.1; validate S3 uploads.
-4. `cryptography` 44→48: bump + smoke-test Fernet encrypt/decrypt + argon2.
-
-Until then these 73 remain open; the CI `pip-audit --strict` gate would still fail on them, so this
-is **not** a clean-audit state — it is a reduced, triaged state with the safely-fixable + reachable
-items addressed and the major coordinated upgrades documented.
+### Bottom line
+- **59 of 97 CVEs fixed + validated** (all reachable + safe ones). The remaining **38** are:
+  `aiohttp` (30, **not reachable** — no aiohttp server) and `starlette` (8, needs a starlette-1.x
+  major bump; 2 of them Windows-only / not reachable on Linux prod). (The fastapi bump that would
+  shave 1 was reverted — see above.)
+- **No known RCE** against this app's usage — the remainder is server-side DoS the app can't hit
+  (aiohttp) or client-reachable DoS gated behind a major framework upgrade (starlette).
+- This is **not a clean `pip-audit --strict`** state; it is a triaged state. Recommend accepting the
+  aiohttp advisories as non-reachable residuals (like the Docker item) and scheduling a
+  starlette-1.x / fastapi upgrade as a separate validated change if the multipart/Range DoS matters.

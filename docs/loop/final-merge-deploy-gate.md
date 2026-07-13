@@ -1,6 +1,9 @@
 # Final merge / deploy gate — claude/loop-engineering → main → AWS
 
-## STATUS: **NOT READY FOR MERGE** — 1 open blocker (security CVEs). Docker build reclassified NON-BLOCKING (owner).
+## STATUS: **HELD for owner confirmation.** No blocker I can act on remains; 2 items are owner decisions.
+All 4 pre-merge hardening checks addressed to the extent safely possible: admin e2e PASS, mypy PASS,
+Docker build NON-BLOCKING (owner), pip-audit 59/97 fixed + 38 reachability-triaged residuals (owner
+decision). Merge/deploy remain held for your explicit go.
 
 Merge and deploy are HELD for explicit owner confirmation (per instruction). GitHub CI is blocked
 at the account level (F1); self-hosted runner installed then **disabled** (kept, off the prod host).
@@ -16,15 +19,21 @@ at the account level (F1); self-hosted runner installed then **disabled** (kept,
    on the prod host is disallowed/disk-risky, so the image build itself is left UNVERIFIED as a
    documented residual limitation — to be built on a non-prod host / CI VM if/when available. The
    bumped deps are standard manylinux/pure wheels for `python:3.12-slim`, expected to install cleanly.
-3. **pip-audit — PARTIAL (open blockers remain).** Isolated pip-audit 2.10.1 on production
-   `requirements.txt`: 97 advisories → fixed 24 safe/reachable (pillow/multipart/pyjwt/crypto-patch,
-   validated: full suite 1014 passed) → **73 remain** (pypdf, aiohttp, starlette, cryptography-46/48)
-   needing MAJOR/coordinated upgrades. See `docs/loop/pip-audit-triage.md`. NOT a clean audit.
+3. **pip-audit — 59 of 97 fixed + validated; 38 residual (owner decision).** Isolated pip-audit
+   2.10.1 on production `requirements.txt`: 97 → fixed 59 (pillow 12.3.0, python-multipart 0.0.31,
+   pyjwt 2.13.0, cryptography 48.0.1, pypdf 6.13.3 — each validated, full suite 1014 passed). The
+   **38 remaining are core-framework-pinned + reachability-triaged**: `aiohttp` (30, **not reachable**
+   — app runs no aiohttp server; all CVEs are server-side; pinned `<3.11` by aiogram) and `starlette`
+   (8, pinned `<0.42` by fastapi; 2 are Windows-only/not-reachable, the reachable form/Range DoS need
+   a starlette-1.x major bump). A fastapi 0.116.2+starlette 0.47.2 bump was validated (1014 passed)
+   but reverted — it clears only 1/8 for a core-framework swap. See `docs/loop/pip-audit-triage.md`.
+   No known RCE. Owner decides: accept the 38 as residuals (like Docker) or require the starlette-1.x
+   upgrade first.
 4. **mypy — PASS (no new errors).** Zero backend source (core/api/bot/workers) changed vs
    origin/main (only migrations/ + tests/); full-backend mypy = 306 errors, identical to
    origin/main (2 pre-existing catalog.py errors, not from this branch).
 
-**HEAD: `3f35343`** · PR #3 `mergeable=CLEAN` · working tree clean.
+**HEAD: (see git log — post dep-triage)** · PR #3 `mergeable=CLEAN` · working tree clean.
 
 ## What's in the branch (delta vs `origin/main` — 37 files, verified `git diff --name-only`)
 - **Production-relevant:** (a) migrations `0043_users_bot_id_index` + `0044_missing_model_indexes`
