@@ -39,7 +39,7 @@ stripe==11.4.1
 pillow==12.3.0
 
 # --- Document extraction (Premium docs) ---
-pypdf==5.1.0
+pypdf==6.13.3
 python-docx==1.1.2
 openpyxl==3.1.5
 python-pptx==1.0.2
@@ -52,4 +52,4 @@ python-multipart==0.0.31
 argon2-cffi==23.1.0
 pyotp==2.9.0
 pyjwt==2.13.0
-cryptography==44.0.1
+cryptography==48.0.1

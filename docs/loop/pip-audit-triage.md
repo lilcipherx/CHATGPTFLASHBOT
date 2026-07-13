@@ -4,11 +4,22 @@ Audit run isolated on a full CPython 3.14.6 (the project `.venv` has a stripped 
 run pip-audit): `pip-audit 2.10.1 -r requirements.txt` (full transitive resolution). Advisory DB
 as of 2026-07 — the pinned deps date to ~Dec 2024, so ~1.5 years of advisories apply.
 
-## Result
+## Result (updated)
 - **Before:** 97 advisories in 7 packages.
-- **Safe fixes applied + validated (this branch):** 24 cleared → **73 advisories in 4 packages remain.**
+- **Fixed + validated (full suite 1014 passed each time):** 59 cleared → **38 advisories in 2
+  packages remain**, both hard-pinned by a core framework:
+  - safe patch/minor: pillow 12.3.0 (5), python-multipart 0.0.31 (6), pyjwt 2.13.0 (12),
+    cryptography 44.0.0→**48.0.1** (5);
+  - stable-API majors validated: **pypdf 5.1.0→6.13.3** (31) — app uses only `PdfReader/.pages/
+    .extract_text()`, unaffected by 6.x removals.
+- **Remaining 38** need a CORE-FRAMEWORK bump (blocked by hard pins), NOT blind-applied:
+  - `aiohttp` 3.10.11 (30) — pinned `<3.11` by **aiogram 3.15.0**; the min fix is 3.12.14 (>3.11),
+    so aiohttp can't move without an **aiogram** bump. Reachability LOW (S3 client; CVEs are
+    HTTP-server-side). Attempted pin to 3.14.1 → rejected (aiogram conflict), reverted.
+  - `starlette` 0.41.3 (8) — pinned `<0.42` by **fastapi 0.115.6**; min fix 0.47.2 needs
+    **fastapi ≥0.116**. Reachability MEDIUM (multipart DoS). See attempt log below.
 - pip-audit has NO CVSS/severity field (PyPI source); severity below is classed by CVE type +
-  the app's actual reachability (what the code does with each package).
+  the app's actual reachability.
 
 ## FIXED (safe patch/minor bumps — validated: `pip check` clean, full suite 1014 passed)
 | Package | 44.0.0→ | Cleared | Reachability / class | Why safe |
