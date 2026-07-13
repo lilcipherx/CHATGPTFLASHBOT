@@ -1,14 +1,34 @@
 # Final merge / deploy gate — claude/loop-engineering → main → AWS
 
-Single consolidated go/no-go for the Loop Engineering branch. **Merge and deploy are HELD for
-explicit owner confirmation** (per instruction). GitHub CI is not bypassed — it is blocked at the
-account level (see F1); `scripts/ci_local.sh` is the adopted temporary merge-gate.
+## STATUS: **NOT READY FOR MERGE** — 2 of the 4 pre-merge hardening checks are open blockers.
 
-**HEAD: `82e1d9a`** · PR #3 `mergeable=MERGEABLE`, `mergeState=CLEAN` · working tree clean.
+Merge and deploy are HELD for explicit owner confirmation (per instruction). GitHub CI is blocked
+at the account level (F1); self-hosted runner installed then **disabled** (kept, off the prod host).
+
+### Pre-merge hardening checks (requested)
+1. **Admin Playwright e2e — PASS.** Real cmd `npm run e2e` (playwright, preview :4174). On HEAD:
+   **4 passed** (login gate, login→shell, RBAC support-hides-superadmin, superadmin-sees-all).
+   (This is separate from ci_local.sh, which only runs the *miniapp* e2e.)
+2. **Production Docker build — BLOCKED.** Docker Desktop is NOT installed on this PC (no
+   `docker.exe` in `C:\Program Files\Docker`, not on PATH, Docker Desktop dir absent). Build path
+   identified (root `Dockerfile`, `context: .` → `aibot:ci`; compose app services `build: .`) but
+   **cannot be built locally**. NOT informational — this is an OPEN blocker (needs Docker on a
+   machine, or the future CI VM).
+3. **pip-audit — PARTIAL (open blockers remain).** Isolated pip-audit 2.10.1 on production
+   `requirements.txt`: 97 advisories → fixed 24 safe/reachable (pillow/multipart/pyjwt/crypto-patch,
+   validated: full suite 1014 passed) → **73 remain** (pypdf, aiohttp, starlette, cryptography-46/48)
+   needing MAJOR/coordinated upgrades. See `docs/loop/pip-audit-triage.md`. NOT a clean audit.
+4. **mypy — PASS (no new errors).** Zero backend source (core/api/bot/workers) changed vs
+   origin/main (only migrations/ + tests/); full-backend mypy = 306 errors, identical to
+   origin/main (2 pre-existing catalog.py errors, not from this branch).
+
+**HEAD: `3f35343`** · PR #3 `mergeable=CLEAN` · working tree clean.
 
 ## What's in the branch (delta vs `origin/main` — 37 files, verified `git diff --name-only`)
-- **Production-relevant (deploy changes the schema):** migrations `0043_users_bot_id_index` +
-  `0044_missing_model_indexes` — 4 additive indexes closing model↔migration drift (F2/F3).
+- **Production-relevant:** (a) migrations `0043_users_bot_id_index` + `0044_missing_model_indexes`
+  — 4 additive indexes (F2/F3); (b) `requirements.txt` — 4 safe dependency bumps (pillow 12.3.0,
+  python-multipart 0.0.31, pyjwt 2.13.0, cryptography 44.0.1) fixing 24 reachable/safe CVEs,
+  validated (full suite 1014 passed). These reach the runtime image.
 - **Tests only (NOT shipped in the Docker image, 20 files):** `tests/test_*.py` money/auth
   critical-domain coverage + Admin Playwright e2e harness (`admin/playwright.config.ts`,
   `admin/e2e/{auth,rbac}.spec.ts`, `admin/package.json`+lock) + `miniapp/e2e/responsive.spec.ts`.
