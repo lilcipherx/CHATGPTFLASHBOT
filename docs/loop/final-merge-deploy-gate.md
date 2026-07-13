@@ -37,9 +37,9 @@ at the account level (F1); self-hosted runner installed then **disabled** (kept,
 
 ## What's in the branch (delta vs `origin/main` — 37 files, verified `git diff --name-only`)
 - **Production-relevant:** (a) migrations `0043_users_bot_id_index` + `0044_missing_model_indexes`
-  — 4 additive indexes (F2/F3); (b) `requirements.txt` — 4 safe dependency bumps (pillow 12.3.0,
-  python-multipart 0.0.31, pyjwt 2.13.0, cryptography 44.0.1) fixing 24 reachable/safe CVEs,
-  validated (full suite 1014 passed). These reach the runtime image.
+  — 4 additive indexes (F2/F3); (b) `requirements.txt` — 5 validated dependency bumps (pillow 12.3.0,
+  python-multipart 0.0.31, pyjwt 2.13.0, cryptography 48.0.1, pypdf 6.13.3) fixing 59 of 97 CVEs
+  (full suite 1014 passed after each). These reach the runtime image.
 - **Tests only (NOT shipped in the Docker image, 20 files):** `tests/test_*.py` money/auth
   critical-domain coverage + Admin Playwright e2e harness (`admin/playwright.config.ts`,
   `admin/e2e/{auth,rbac}.spec.ts`, `admin/package.json`+lock) + `miniapp/e2e/responsive.spec.ts`.
