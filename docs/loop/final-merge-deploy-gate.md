@@ -1,6 +1,6 @@
 # Final merge / deploy gate — claude/loop-engineering → main → AWS
 
-## STATUS: **NOT READY FOR MERGE** — 2 of the 4 pre-merge hardening checks are open blockers.
+## STATUS: **NOT READY FOR MERGE** — 1 open blocker (security CVEs). Docker build reclassified NON-BLOCKING (owner).
 
 Merge and deploy are HELD for explicit owner confirmation (per instruction). GitHub CI is blocked
 at the account level (F1); self-hosted runner installed then **disabled** (kept, off the prod host).
@@ -9,11 +9,13 @@ at the account level (F1); self-hosted runner installed then **disabled** (kept,
 1. **Admin Playwright e2e — PASS.** Real cmd `npm run e2e` (playwright, preview :4174). On HEAD:
    **4 passed** (login gate, login→shell, RBAC support-hides-superadmin, superadmin-sees-all).
    (This is separate from ci_local.sh, which only runs the *miniapp* e2e.)
-2. **Production Docker build — BLOCKED.** Docker Desktop is NOT installed on this PC (no
-   `docker.exe` in `C:\Program Files\Docker`, not on PATH, Docker Desktop dir absent). Build path
-   identified (root `Dockerfile`, `context: .` → `aibot:ci`; compose app services `build: .`) but
-   **cannot be built locally**. NOT informational — this is an OPEN blocker (needs Docker on a
-   machine, or the future CI VM).
+2. **Production Docker build — NON-BLOCKING residual limitation** (owner decision). This branch does
+   NOT change `Dockerfile` or the compose files. The live prod deploy config was validated read-only
+   via `ssh flashbot`: `docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q`
+   → exit 0 (valid merge, zero secret output). Docker Desktop is not installed locally and building
+   on the prod host is disallowed/disk-risky, so the image build itself is left UNVERIFIED as a
+   documented residual limitation — to be built on a non-prod host / CI VM if/when available. The
+   bumped deps are standard manylinux/pure wheels for `python:3.12-slim`, expected to install cleanly.
 3. **pip-audit — PARTIAL (open blockers remain).** Isolated pip-audit 2.10.1 on production
    `requirements.txt`: 97 advisories → fixed 24 safe/reachable (pillow/multipart/pyjwt/crypto-patch,
    validated: full suite 1014 passed) → **73 remain** (pypdf, aiohttp, starlette, cryptography-46/48)
