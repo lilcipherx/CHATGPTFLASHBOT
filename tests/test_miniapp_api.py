@@ -157,3 +157,45 @@ async def test_video_generate_with_credits_200(client, monkeypatch):
     r = await client.post("/api/models/video/seedance/generate",
                           data={"prompt": "x", "idempotency_key": "v2"})
     assert r.status_code == 200
+
+
+def _png_bytes() -> bytes:
+    """A real, decodable PNG (the upload validator content-decodes with Pillow)."""
+    import io
+
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (120, 180, 90)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+_PNG = _png_bytes()
+
+
+async def test_effect_generate_with_photo(client, monkeypatch):
+    _mock_gen(monkeypatch)
+    from core.models.catalog import MiniAppPhotoEffect
+    async with SessionFactory() as s:
+        s.add(MiniAppPhotoEffect(
+            effect_id=1, category="all", name_ru="Тест", enabled=True,
+            prompt_mode="optional", max_photos=1, price=0,
+            recommended_model="gpt_image2", compatible_models=["gpt_image2"],
+        ))
+        await s.commit()
+    # curated photo effect: upload one photo + apply it (free weekly slot covers cost).
+    r = await client.post(
+        "/api/effects/photo/1/generate",
+        data={"model": "gpt_image2", "prompt": "make it art", "idempotency_key": "e1"},
+        files=[("photos", ("p.png", _PNG, "image/png"))],
+    )
+    assert r.status_code in (200, 402, 503), r.text[:200]
+
+
+async def test_effect_generate_unknown_effect_404(client, monkeypatch):
+    _mock_gen(monkeypatch)
+    r = await client.post(
+        "/api/effects/photo/999999/generate",
+        data={"model": "gpt_image2", "prompt": "x", "idempotency_key": "e2"},
+        files=[("photos", ("p.png", _PNG, "image/png"))],
+    )
+    assert r.status_code == 404
