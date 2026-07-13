@@ -36,7 +36,10 @@ Validated locally: `bash -n` clean · `shellcheck -S style` clean · `--dry-run`
 ## Exact command chain (what the script does)
 ```
 # ---- LOCAL (immutable artifact) ----
-git archive --format=tar.gz -o release-<short>.tar.gz <REF>     # exactly the committed tree; no .git/.env/untracked
+git -c core.autocrlf=false -c core.eol=lf archive --format=tar.gz -o release-<short>.tar.gz <REF>
+                                                               # exactly the committed tree (no .git/.env/untracked);
+                                                               # LF forced so a Windows core.autocrlf=true checkout does
+                                                               # not inject CRLF and trip the drift-gate vs LF prod files.
 sha256sum release-<short>.tar.gz > release-<short>.tar.gz.sha256
 
 # ---- DELIVER ----

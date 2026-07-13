@@ -75,11 +75,14 @@ if ! ssh_do "psql shell-quoting check (SELECT 1)" "
   exit 12
 fi
 
-say "1. Build immutable bundle (local git archive — no .git/.env/untracked)"
+say "1. Build immutable bundle (local git archive — no .git/.env/untracked; forced LF)"
+# core.autocrlf=false + core.eol=lf pin line endings to LF regardless of the Windows
+# global git config, so the bundle stays byte-for-byte $REF (blobs are LF) and never
+# trips the config-drift gate against the LF production files. Content = exactly $REF.
 if [[ "$DRY" -eq 1 ]]; then
-  echo "  DRY: git archive --format=tar.gz -o $BUNDLE $REF && sha256sum $BUNDLE"
+  echo "  DRY: git -c core.autocrlf=false -c core.eol=lf archive --format=tar.gz -o $BUNDLE $REF && sha256sum $BUNDLE"
 else
-  git archive --format=tar.gz -o "$BUNDLE" "$REF"
+  git -c core.autocrlf=false -c core.eol=lf archive --format=tar.gz -o "$BUNDLE" "$REF"
   sha256sum "$BUNDLE" | tee "${BUNDLE}.sha256"
 fi
 
