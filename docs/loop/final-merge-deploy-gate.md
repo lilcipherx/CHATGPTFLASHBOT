@@ -1,9 +1,11 @@
 # Final merge / deploy gate — claude/loop-engineering → main → AWS
 
-## STATUS: **HELD for owner confirmation.** No blocker I can act on remains; 2 items are owner decisions.
-All 4 pre-merge hardening checks addressed to the extent safely possible: admin e2e PASS, mypy PASS,
-Docker build NON-BLOCKING (owner), pip-audit 59/97 fixed + 38 reachability-triaged residuals (owner
-decision). Merge/deploy remain held for your explicit go.
+## STATUS: **READY FOR MERGE WITH ACCEPTED RESIDUAL RISKS** — merge/deploy still HELD for explicit owner confirmation.
+Owner has **accepted the 38 residual CVEs as temporary residual risk for this release** (no major
+FastAPI / Starlette / aiogram / aiohttp upgrades now — deferred to the next security cycle, see
+Follow-up FU-2). Pre-merge hardening: admin e2e PASS · Docker build NON-BLOCKING residual · pip-audit
+59/97 fixed + 38 accepted residuals · mypy = baseline debt (306 pre-existing, no new). **Merge and
+deploy each require a separate explicit owner confirmation** — nothing is executed automatically.
 
 Merge and deploy are HELD for explicit owner confirmation (per instruction). GitHub CI is blocked
 at the account level (F1); self-hosted runner installed then **disabled** (kept, off the prod host).
@@ -27,11 +29,12 @@ at the account level (F1); self-hosted runner installed then **disabled** (kept,
    (8, pinned `<0.42` by fastapi; 2 are Windows-only/not-reachable, the reachable form/Range DoS need
    a starlette-1.x major bump). A fastapi 0.116.2+starlette 0.47.2 bump was validated (1014 passed)
    but reverted — it clears only 1/8 for a core-framework swap. See `docs/loop/pip-audit-triage.md`.
-   No known RCE. Owner decides: accept the 38 as residuals (like Docker) or require the starlette-1.x
-   upgrade first.
-4. **mypy — PASS (no new errors).** Zero backend source (core/api/bot/workers) changed vs
-   origin/main (only migrations/ + tests/); full-backend mypy = 306 errors, identical to
-   origin/main (2 pre-existing catalog.py errors, not from this branch).
+   No known RCE. **ACCEPTED by owner as temporary residual risk for this release.** Owner: repo owner
+   (lilcipherx). Remediation target: **next security cycle — 2026-10-14** (Follow-up FU-2).
+4. **mypy — BASELINE DEBT (not a pass).** Full-backend `mypy core api bot workers` = **306
+   pre-existing errors**, unchanged vs origin/main (this branch changed zero backend source — only
+   `migrations/` + `tests/`). CI runs mypy non-blocking (`|| true`). Tracked as baseline type-debt
+   (Follow-up FU-6): this branch introduces NO new mypy errors but does not reduce the existing 306.
 
 **HEAD: (see git log — post dep-triage)** · PR #3 `mergeable=CLEAN` · working tree clean.
 
@@ -85,6 +88,16 @@ at the account level (F1); self-hosted runner installed then **disabled** (kept,
 ## Blockers before merge (owner action)
 1. **Explicit owner confirmation to merge** (no automated self-merge; the harness refuses it).
 2. GitHub CI cannot run (F1). The adopted gate is `scripts/ci_local.sh` (green — see above).
+
+## Follow-up tasks (post-release, tracked — NOT blocking this merge)
+| # | Task | Owner | Target |
+|---|------|-------|--------|
+| FU-1 | **Restore GitHub CI** — resolve Actions billing / make repo public / stand up a dedicated CI VM, so runs dispatch again (self-hosted on the prod host was disabled and does NOT bypass the account block). | repo owner (lilcipherx) | before next feature merge |
+| FU-2 | **Dependency modernization** — clear the 38 accepted residual CVEs via coordinated major upgrades: `starlette` 1.x + a supporting `fastapi`; `aiogram`→`aiohttp` ≥3.12; re-audit + full regression + e2e. | repo owner | **next security cycle — 2026-10-14** |
+| FU-3 | **Image SHA labels** — add `org.opencontainers.image.revision`/`source` to the Dockerfile build so a deployed image ↔ git SHA is verifiable (currently app images carry no revision label). | repo owner | next deploy |
+| FU-4 | **Off mutable `:latest`** — pin `omniroute` / `minio` / `pgbouncer` (and align long-running containers still on `:latest`) to digests; `--force-recreate` on next deploy. | repo owner | next deploy |
+| FU-5 | **UFW hardening** on the AWS host — enable `ufw` (allow 22/80/443, deny rest) as defense-in-depth behind the Security Group. | repo owner | ops window |
+| FU-6 | **mypy baseline debt** — pay down the 306 pre-existing `mypy core api bot workers` errors over time; tighten the CI typecheck from non-blocking toward gating. | repo owner | ongoing |
 
 ## Merge steps (ONLY after explicit owner confirmation)
 1. Confirm `scripts/ci_local.sh` green on the exact HEAD being merged.
