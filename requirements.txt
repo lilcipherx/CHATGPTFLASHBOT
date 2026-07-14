@@ -19,7 +19,7 @@ arq==0.26.3
 # FIX: AUDIT-17 - moved to requirements-dev.txt
 
 # --- Object storage ---
-aioboto3==13.3.0
+aioboto3==15.5.0
 
 # --- AI providers ---
 openai==1.59.6
