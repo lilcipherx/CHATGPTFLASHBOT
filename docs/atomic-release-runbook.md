@@ -45,7 +45,12 @@ changes the hash.
    build/swap (exit 23). **No `prune`/cleanup is ever run on production.**
 4. **Verification** — alembic must reach `0044` (exit 30); the 4 new indexes must exist AND be
    `indisvalid` (exit 31); no container `health=unhealthy` and api/bot/worker/beat must be `running`
-   (exit 32); `scripts/smoke_test.sh` must pass (exit 33).
+   (exit 32); the smoke test must pass (exit 33). The smoke runs as
+   `BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh` — prod publishes api only on the
+   loopback `127.0.0.1:8000` (`docker-compose.prod.yml` `api: ports: !reset []`); `127.0.0.1` (not
+   `localhost`) avoids IPv6 `::1`. Contract: PUBLIC `/health` + `/health/ready` must be 200, `/admin`
+   307; PROTECTED `/metrics`, `/health/providers`, `/api/*` must be auth-gated (401/403) — a 200
+   anonymously is a **protection leak** and fails. Contract is covered by `scripts/smoke_contract_test.sh`.
 5. **Scoped compose ops** — only the app services `migrate api bot worker beat` are `build`+`up -d`,
    and `caddy` is a **separate** `up -d --force-recreate`. **postgres, redis, minio, backup are NOT
    recreated.**
@@ -137,7 +142,7 @@ ssh flashbot: alembic_current == 0044_missing_model_indexes                     
               4 indexes ix_users_bot_id / ix_gifts_buyer_id / ix_gifts_redeemed_by /
                 ix_contest_entries_user_id present + indisvalid = t                 (else exit 31)
               no health=unhealthy container AND api/bot/worker/beat == running      (else exit 32)
-              bash scripts/smoke_test.sh                                            (else exit 33)
+              BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh             (else exit 33)
               docker compose logs --tail=30 api bot worker                          (informational)
 ```
 

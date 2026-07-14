@@ -355,7 +355,9 @@ if ! ssh_do "no unhealthy containers + app services running" "
   done
 "; then echo ">>> FAIL: unhealthy or non-running app container"; exit 32; fi
 
-if ! ssh_do "smoke test (scripts/smoke_test.sh)" "cd '$APP_DIR' && bash scripts/smoke_test.sh"; then
+# Prod api is published to 127.0.0.1:8000 (docker-compose.prod.yml `api: ports: !reset []` keeps it
+# loopback-only). Pass the port explicitly and use 127.0.0.1 (NOT localhost) to avoid IPv6 ::1 resolve.
+if ! ssh_do "smoke test (BASE_URL=http://127.0.0.1:8000)" "cd '$APP_DIR' && BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh"; then
   echo ">>> FAIL: smoke test failed"; exit 33
 fi
 
