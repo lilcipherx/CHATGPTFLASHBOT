@@ -13,8 +13,15 @@
 # shipped assets. The frontend is built LOCALLY (the prod host has no node/npm) — there is NO
 # server-side `npm ci`/`npm run build`.
 #
-#   Usage:  bash scripts/atomic_release.sh [REF] [--dry-run] [--build-only]
+#   Usage:  bash scripts/atomic_release.sh [REF] --expect-current <rev> --expect-head <rev>
+#                                          [--dry-run] [--build-only]
 #   REF defaults to fa654ba.
+#   --expect-current <rev>  REQUIRED (except --build-only): the alembic revision prod MUST be at
+#                           BEFORE the swap. The pre-swap gate aborts unless live == this.
+#   --expect-head <rev>     REQUIRED (except --build-only): the alembic revision prod MUST reach
+#                           AFTER deploy. The post-deploy verify aborts unless live == this.
+#                           (For a release with NO new migrations, pass the SAME value for both —
+#                            e.g. prod already at 0044 and the target adds no migration.)
 #   --dry-run     prints every command/remote step and changes NOTHING (no local build either).
 #   --build-only  runs the LOCAL build + manifest + bundle + bundle-verification, then STOPS
 #                 before any ssh/scp (no server contact) — for offline validation.
@@ -23,21 +30,57 @@
 #   * config drift          — live Dockerfile/compose/Caddyfile must match the bundle (sha256; ABORT)
 #   * manifest/dist integrity— manifest source_sha == $REF, both dist non-empty, dist sha256 match
 #   * disk >= 7 GB           — checked before the swap/build path AND again right before docker build
-#   * alembic == 0042 before swap; == 0044 after; 4 new indexes VALID; all app containers healthy;
-#     smoke test passes      — any failure exits non-zero.
+#   * alembic == <expect-current> before swap; == <expect-head> after; 4 new indexes VALID;
+#     all app containers healthy; smoke test passes — any failure exits non-zero.
 # No prune / cleanup is ever run on production. The frontend build happens locally, not on prod.
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+Usage: bash scripts/atomic_release.sh [REF] --expect-current <rev> --expect-head <rev>
+                                      [--dry-run] [--build-only]
+  REF                     git ref to release (default: fa654ba)
+  --expect-current <rev>  REQUIRED (except --build-only) alembic revision prod MUST be at BEFORE swap
+  --expect-head <rev>     REQUIRED (except --build-only) alembic revision prod MUST reach AFTER deploy
+                          (pass the SAME value for both when the release adds no migration)
+  --dry-run               print the whole command chain; change nothing (no local build)
+  --build-only            local build + bundle + verification only; no server contact
+Revisions must match [A-Za-z0-9_]{1,64}.
+USAGE
+}
+
+# A safe Alembic revision id for THIS repo (descriptive slugs like 0044_missing_model_indexes, or
+# 12-hex). Restricted to [A-Za-z0-9_], 1-64 chars, so the value can never break out of the quoted
+# server-side SQL/shell it is interpolated into.
+valid_rev() { [[ "$1" =~ ^[A-Za-z0-9_]{1,64}$ ]]; }
+
 # ---- args -------------------------------------------------------------------------------
-REF="fa654ba"; DRY=0; BUILD_ONLY=0
-for a in "$@"; do
-  case "$a" in
-    --dry-run)    DRY=1 ;;
-    --build-only) BUILD_ONLY=1 ;;
-    -*) echo "unknown flag: $a" >&2; exit 64 ;;
-    *)  REF="$a" ;;
+REF=""; DRY=0; BUILD_ONLY=0; EXPECT_CUR=""; EXPECT_HEAD=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)          DRY=1 ;;
+    --build-only)       BUILD_ONLY=1 ;;
+    --expect-current)   EXPECT_CUR="${2:-}"; shift ;;
+    --expect-current=*) EXPECT_CUR="${1#*=}" ;;
+    --expect-head)      EXPECT_HEAD="${2:-}"; shift ;;
+    --expect-head=*)    EXPECT_HEAD="${1#*=}" ;;
+    -*) echo "ERROR: unknown flag: $1" >&2; usage >&2; exit 64 ;;
+    *)  REF="$1" ;;
   esac
+  shift
 done
+REF="${REF:-fa654ba}"
+
+# --expect-current / --expect-head are mandatory for anything that talks to the server (real deploy
+# AND --dry-run, which renders the migration gates). --build-only never touches migrations.
+if [[ "$BUILD_ONLY" -eq 0 ]]; then
+  if [[ -z "$EXPECT_CUR" || -z "$EXPECT_HEAD" ]]; then
+    echo "ERROR: --expect-current <rev> and --expect-head <rev> are REQUIRED (omit only with --build-only)." >&2
+    usage >&2; exit 64
+  fi
+  valid_rev "$EXPECT_CUR"  || { echo "ERROR: --expect-current '$EXPECT_CUR' is not a safe alembic revision id ([A-Za-z0-9_], 1-64)." >&2; exit 64; }
+  valid_rev "$EXPECT_HEAD" || { echo "ERROR: --expect-head '$EXPECT_HEAD' is not a safe alembic revision id ([A-Za-z0-9_], 1-64)." >&2; exit 64; }
+fi
 
 SSH_HOST="flashbot"
 APP_DIR="/home/ubuntu/CHATGPTFLASHBOT"
@@ -47,8 +90,7 @@ APP_SERVICES="migrate api bot worker beat"   # ONLY these are (re)built/recreate
 DRIFT_FILES="Dockerfile docker-compose.yml docker-compose.prod.yml Caddyfile"
 FRONTENDS="miniapp admin"                     # each has package-lock.json + `vite build` -> dist/
 MIN_FREE_GB=7
-EXPECT_CUR="0042_search_model"
-EXPECT_HEAD="0044_missing_model_indexes"
+# EXPECT_CUR / EXPECT_HEAD come from --expect-current / --expect-head (validated above).
 
 TS="$(date +%Y%m%d-%H%M%S)"
 SHORT="$(git rev-parse --short "$REF")"
@@ -97,6 +139,7 @@ git rev-parse --verify "${REF}^{commit}" >/dev/null
 command -v node >/dev/null || { echo '>>> ABORT: local node not found (frontend is built locally).'; exit 10; }
 command -v npm  >/dev/null || { echo '>>> ABORT: local npm not found (frontend is built locally).'; exit 10; }
 echo "  REF=$REF short=$SHORT full=$FULL ts=$TS dry_run=$DRY build_only=$BUILD_ONLY min_free=${MIN_FREE_GB}GB"
+[[ "$BUILD_ONLY" -eq 0 ]] && echo "  expect_current=$EXPECT_CUR expect_head=$EXPECT_HEAD"
 echo "  local node=$(node -v) npm=$(npm -v)"
 
 if [[ "$BUILD_ONLY" -eq 0 ]]; then
@@ -332,7 +375,7 @@ fi
 
 say "10. Rebuild + recreate ONLY app services ($APP_SERVICES); caddy separate; DB/cache/minio untouched"
 ssh_do "build app images" "cd '$APP_DIR' && $COMPOSE build $APP_SERVICES"
-ssh_do "up -d app services (migrate applies 0043/0044 first, fail-closed)" "cd '$APP_DIR' && $COMPOSE up -d $APP_SERVICES"
+ssh_do "up -d app services (migrate runs 'alembic upgrade head' first, fail-closed)" "cd '$APP_DIR' && $COMPOSE up -d $APP_SERVICES"
 ssh_do "force-recreate caddy for new dist/Caddyfile" "cd '$APP_DIR' && $COMPOSE up -d --force-recreate caddy"
 
 say "11. VERIFY — any failure exits non-zero (no masking)"
@@ -366,10 +409,12 @@ ssh_do "recent app logs (tail, informational)" "cd '$APP_DIR' && $COMPOSE logs -
 cat <<ROLLBACK
 
 ======================  DEPLOY OK  ·  ROLLBACK (run on the server if needed later)  ======================
-# APP rollback (0043/0044 additive → old code runs fine on the indexed schema; no DB downgrade):
+# APP rollback — swap back to the previous release (this release's migrations, if any, are additive/
+# compatible, so the old code runs fine on the current schema; no DB downgrade needed):
   mv $APP_DIR ${APP_DIR}.failed.${TS} && mv ${APP_DIR}.prev.${TS} $APP_DIR
   cd $APP_DIR && $COMPOSE build $APP_SERVICES && $COMPOSE up -d $APP_SERVICES && $COMPOSE up -d --force-recreate caddy
-# MIGRATION rollback (only if schema must revert; reversible DROP INDEX CONCURRENTLY):
+# MIGRATION rollback (ONLY if the schema must revert AND expect-current != expect-head; a
+# same-revision release adds nothing to downgrade):
   cd $APP_DIR && $COMPOSE run --rm migrate alembic downgrade $EXPECT_CUR
 # DB restore (LAST RESORT — data corruption only):
   gunzip -c ~/predeploy-backup-fa654ba-20260713-195247.sql.gz | docker exec -i chatgptflashbot-postgres-1 sh -lc 'psql -U \$POSTGRES_USER -d \$POSTGRES_DB'

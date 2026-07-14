@@ -4,12 +4,28 @@ New, documented deploy procedure for a **directory-swap** host (the server is no
 the old code-delivery command was never recovered — see `docs/loop/` forensics). This replaces
 the unknown legacy delivery with an explicit, reviewable, atomic one.
 
-**Executable form:** `scripts/atomic_release.sh [REF] [--dry-run] [--build-only]` (REF defaults to
-`fa654ba`). `--dry-run` prints every command/remote step and changes nothing (no local build either).
+**Executable form:** `scripts/atomic_release.sh [REF] --expect-current <rev> --expect-head <rev>
+[--dry-run] [--build-only]` (REF defaults to `fa654ba`).
+`--expect-current` / `--expect-head` are **REQUIRED** for any run that contacts the server (real
+deploy and `--dry-run`) and are validated as safe alembic revision ids (`[A-Za-z0-9_]{1,64}`) before
+they reach SSH — the migration revisions are **no longer hardcoded**. The pre-swap gate aborts unless
+live == `--expect-current`; the post-deploy verify aborts unless live == `--expect-head`. For a
+release that adds **no** migration, pass the **same** value for both.
+`--dry-run` prints every command/remote step and changes nothing (no local build either).
 `--build-only` runs the local build + manifest + bundle + bundle-verification, then STOPS before any
-ssh/scp (no server contact). **Run the real deploy only after owner sign-off.**
-Validated locally: `bash -n` clean · `shellcheck -S style` clean · `--dry-run` renders the full
-chain · `--build-only` builds both SPAs and passes the bundle-content checks.
+ssh/scp (no server contact; `--expect-*` not required). **Run the real deploy only after owner sign-off.**
+Validated locally: `bash -n` clean · `shellcheck -S style` clean · required-arg + revision-format
+guards exit 64 · `--dry-run` renders the full chain · `--build-only` builds both SPAs and passes the
+bundle-content checks.
+
+### Documented call for the ARQ-cron-queue release (main SHA `04a3735`, no new migration)
+Prod is already at `0044_missing_model_indexes` and `04a3735` adds no migration, so both bounds are
+the same revision:
+```
+bash scripts/atomic_release.sh 04a3735773981dda97516454adb507a88356f66d \
+  --expect-current 0044_missing_model_indexes \
+  --expect-head 0044_missing_model_indexes
+```
 
 ## Release artifact — NOT a byte-identical Git tree
 The bundle = the **exact `$REF` source tree (forced LF)** PLUS **locally-built frontend assets**
@@ -43,7 +59,7 @@ changes the hash.
    locally; this proves neither the exact source nor the shipped assets were altered in transit.)
 3. **Disk ≥ 7 GB, checked twice** — staging headroom (exit 21) and again right before the docker
    build/swap (exit 23). **No `prune`/cleanup is ever run on production.**
-4. **Verification** — alembic must reach `0044` (exit 30); the 4 new indexes must exist AND be
+4. **Verification** — alembic must reach `--expect-head` (exit 30); the 4 F2/F3 indexes must exist AND be
    `indisvalid` (exit 31); no container `health=unhealthy` and api/bot/worker/beat must be `running`
    (exit 32); the smoke test must pass (exit 33). The smoke runs as
    `BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh` — prod publishes api only on the
@@ -67,8 +83,10 @@ tracked tree exactly; both `dist/index.html` present + non-empty; manifest prese
   does not disturb running app containers until rebuild+recreate.
 - **caddy bind-mounts** `./miniapp/dist`, `./admin/dist`, `./Caddyfile` (ro) → after a swap caddy
   must be `--force-recreate`d to serve the new SPA/Caddyfile. Source: `docker-compose.prod.yml`.
-- Prod is at `alembic 0042_search_model`; target head after deploy is `0044_missing_model_indexes`
-  (additive `CREATE INDEX CONCURRENTLY`). Source: read-only inventory + `migration-runbook.md`.
+- The pre/post alembic revisions are **passed per release** via `--expect-current` / `--expect-head`
+  (no longer hardcoded). The original fa654ba deploy went `0042_search_model → 0044_missing_model_indexes`
+  (additive `CREATE INDEX CONCURRENTLY`); the ARQ-cron-queue release `04a3735` adds **no** migration,
+  so both bounds are `0044_missing_model_indexes`. Source: read-only inventory + `migration-runbook.md`.
 
 ## Exact command chain (what the script does)
 ```
@@ -119,7 +137,7 @@ ssh flashbot: avail=$(df -BG --output=avail /); [ avail >= 7 GB ] || ABORT exit 
 ssh flashbot: (cd <stage> && docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q)
 
 # ---- PRE-SWAP SAFETY ----
-ssh flashbot: assert prod alembic_current == 0042_search_model  (else ABORT exit 22)
+ssh flashbot: assert prod alembic_current == <--expect-current>  (else ABORT exit 22)
 
 # ---- DISK HARD-STOP #2 (right before swap + docker build) ----
 ssh flashbot: avail=$(df -BG --output=avail /); [ avail >= 7 GB ] || ABORT exit 23  (no prune, nothing swapped)
@@ -134,11 +152,11 @@ ssh flashbot: mv CHATGPTFLASHBOT           CHATGPTFLASHBOT.prev.<ts>     # renam
 # ---- REBUILD + RECREATE + MIGRATE (app services ONLY; DB/redis/minio/backup untouched) ----
 ssh flashbot: cd CHATGPTFLASHBOT
               docker compose -f ... -f ... build migrate api bot worker beat        # build new app images (old containers keep running)
-              docker compose -f ... -f ... up -d migrate api bot worker beat        # migrate runs 0043/0044, THEN app services start
+              docker compose -f ... -f ... up -d migrate api bot worker beat        # migrate runs 'alembic upgrade head', THEN app services start
               docker compose -f ... -f ... up -d --force-recreate caddy             # serve new dist/Caddyfile (separate)
 
 # ---- VERIFY (each check exits non-zero on failure — no masking) ----
-ssh flashbot: alembic_current == 0044_missing_model_indexes                        (else exit 30)
+ssh flashbot: alembic_current == <--expect-head>                                   (else exit 30)
               4 indexes ix_users_bot_id / ix_gifts_buyer_id / ix_gifts_redeemed_by /
                 ix_contest_entries_user_id present + indisvalid = t                 (else exit 31)
               no health=unhealthy container AND api/bot/worker/beat == running      (else exit 32)
@@ -163,16 +181,18 @@ ssh flashbot: alembic_current == 0044_missing_model_indexes                     
 
 ## Rollback (exact)
 ```
-# APP rollback — 0043/0044 are additive; the OLD code (2c6d678) runs fine on the indexed
-# schema, so NO DB downgrade is needed. Swap back to the preserved release:
+# APP rollback — when --expect-current == --expect-head (release adds no migration, e.g. 04a3735)
+# the swap-back is purely code; when they differ the release's migrations are additive/compatible,
+# so the OLD code runs fine on the current schema and NO DB downgrade is needed. Swap back:
 mv /home/ubuntu/CHATGPTFLASHBOT              /home/ubuntu/CHATGPTFLASHBOT.failed.<ts>
 mv /home/ubuntu/CHATGPTFLASHBOT.prev.<ts>    /home/ubuntu/CHATGPTFLASHBOT
 cd /home/ubuntu/CHATGPTFLASHBOT && docker compose -f docker-compose.yml -f docker-compose.prod.yml build migrate api bot worker beat \
   && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d migrate api bot worker beat \
   && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate caddy
 
-# MIGRATION rollback (only if the schema must be reverted; both migrations are reversible):
-cd /home/ubuntu/CHATGPTFLASHBOT && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic downgrade 0042_search_model
+# MIGRATION rollback (ONLY if --expect-head != --expect-current AND the schema must revert; a
+# same-revision release adds nothing to downgrade):
+cd /home/ubuntu/CHATGPTFLASHBOT && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic downgrade <--expect-current>
 
 # DB restore (LAST RESORT — data corruption only; our change is additive indexes):
 gunzip -c ~/predeploy-backup-fa654ba-20260713-195247.sql.gz | docker exec -i chatgptflashbot-postgres-1 sh -lc 'psql -U $POSTGRES_USER -d $POSTGRES_DB'
@@ -180,6 +200,19 @@ gunzip -c ~/predeploy-backup-fa654ba-20260713-195247.sql.gz | docker exec -i cha
 
 ## Prerequisites before running (owner)
 - Confirm this exact procedure.
-- Ensure a fresh, verified DB backup exists (already created: `~/predeploy-backup-fa654ba-20260713-195247.sql.gz`).
+- Pass `--expect-current` / `--expect-head` matching the LIVE prod revision and the target's head
+  (verify the live revision read-only first). For `04a3735` both are `0044_missing_model_indexes`.
+- Take a fresh, verified DB backup immediately before deploy (gzip integrity + alembic check inside).
 - Accept the brief downtime window on container recreate.
 - Nothing runs on AWS until you separately confirm.
+
+### Queue transition note (ARQ-cron-queue release `04a3735`)
+This release moves beat onto a dedicated ARQ queue (`arq:cron`). After deploy:
+- Do **NOT** delete or flush the old `arq:queue`. Cron records already enqueued to `arq:queue` at the
+  switch become harmless orphans; the worker drains them and beat re-issues each on schedule into
+  `arq:cron` within ~1 min.
+- Expect a brief tail of `function not found` warnings for a couple of cron ticks while those
+  pre-switch records drain — expected, not a regression.
+- Observe read-only for **≥5 minutes** on worker + beat. Success: no NEW `function not found`; beat
+  log shows `← cron:* ●` completions; DB `cron_jobs` `last_status=ok` with fresh `last_run_at`; the
+  worker queue still processes ordinary jobs (avatars/broadcasts reach the pool).
