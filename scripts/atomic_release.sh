@@ -73,9 +73,17 @@ ssh_do(){
   ssh -o ConnectTimeout=30 "$SSH_HOST" "$2"
 }
 
-# content-hash of a dist tree: path+content, deterministic, mtime/owner-independent.
-# Same recipe is run locally (to fill the manifest) and on the server (to verify).
-DIST_HASH_RECIPE='find dist -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d" " -f1'
+# Content-hash recipes: hash over "path\n<64-hex content sha>\n" for the selected files, sorted by
+# path. `cut -c1-64` takes ONLY the hex digest, so it is immune to sha256sum's text/binary marker
+# (' *' on Windows/msys vs two-space on Linux) — the SAME digest is produced locally and on the
+# server. Run via `eval` locally (single source of truth) and interpolated verbatim into the ssh
+# command remotely (bash does not re-expand a substituted variable's value, so $f stays a server var).
+# shellcheck disable=SC2016  # $f is a server-side var, must stay literal (single quotes intentional)
+REMOTE_SRC_HASH='find . -type f ! -path "./miniapp/dist/*" ! -path "./admin/dist/*" ! -name "RELEASE_MANIFEST.txt" ! -path "./.git/*" ! -path "*/node_modules/*" ! -path "./.env" ! -path "./.env.staging" -print0 | LC_ALL=C sort -z | while IFS= read -r -d "" f; do printf "%s\n" "$f"; sha256sum < "$f" | cut -c1-64; done | sha256sum | cut -c1-64'
+# shellcheck disable=SC2016  # $f is a server-side var, must stay literal (single quotes intentional)
+REMOTE_DIST_HASH='find dist -type f -print0 | LC_ALL=C sort -z | while IFS= read -r -d "" f; do printf "%s\n" "$f"; sha256sum < "$f" | cut -c1-64; done | sha256sum | cut -c1-64'
+src_tree_hash(){  ( cd "$1" && eval "$REMOTE_SRC_HASH"  ); }
+dist_tree_hash(){ ( cd "$1" && eval "$REMOTE_DIST_HASH" ); }
 
 # --- these SQL/psql snippets run on the server; server-side $VARs are escaped as \$ ---
 # SELECT1_Q / ALEMBIC_Q share the EXACT same shell+psql quoting path, so the read-only
@@ -118,27 +126,42 @@ if [[ "$DRY" -eq 1 ]]; then
        verify_bundle: source == $REF tracked tree, both dist present+nonempty, manifest present, NO .env/.git/node_modules
 DRYBUILD
 else
-  WORK="$(mktemp -d)"; SRC="$WORK/src"; mkdir -p "$SRC"
+  WORK="$(mktemp -d)"; SRC="$WORK/src"; PRISTINE="$WORK/pristine"; mkdir -p "$SRC" "$PRISTINE"
   echo "  workspace: $WORK"
+  # Two independent extractions of the EXACT $REF tree (forced LF). PRISTINE is never touched by npm;
+  # SRC is where we build. Comparing their content-hashes proves the build didn't mutate any source.
   git -c core.autocrlf=false -c core.eol=lf archive --format=tar "$REF" | tar -x -C "$SRC"
+  git -c core.autocrlf=false -c core.eol=lf archive --format=tar "$REF" | tar -x -C "$PRISTINE"
+  pristine_src_hash="$(src_tree_hash "$PRISTINE")"
+  echo "  pristine source_tree_sha256=$pristine_src_hash"
   for d in $FRONTENDS; do
     echo "  -- local build: $d (npm ci && npm run build) --"
     ( cd "$SRC/$d" && npm ci && npm run build )
     test -s "$SRC/$d/dist/index.html" || { echo ">>> ABORT: $d/dist/index.html missing/empty after build."; exit 11; }
   done
   rm -rf "$SRC"/*/node_modules                       # npm ci created these; never ship them
-  mh="$( cd "$SRC/miniapp" && eval "$DIST_HASH_RECIPE" )"
-  ah="$( cd "$SRC/admin"   && eval "$DIST_HASH_RECIPE" )"
+  # ZERO-TRUST: the built tree's SOURCE content (excluding dist + manifest) must be byte-identical to
+  # pristine $REF. A single changed source byte here aborts BEFORE any bundle is created.
+  built_src_hash="$(src_tree_hash "$SRC")"
+  echo "  built    source_tree_sha256=$built_src_hash"
+  if [ "$built_src_hash" != "$pristine_src_hash" ]; then
+    echo ">>> ABORT: local build mutated the source tree (content-hash mismatch vs pristine $REF)."
+    echo ">>>        pristine=$pristine_src_hash built=$built_src_hash — refusing to bundle."
+    exit 14
+  fi
+  mh="$(dist_tree_hash "$SRC/miniapp")"
+  ah="$(dist_tree_hash "$SRC/admin")"
   {
     echo "source_ref=$REF"
     echo "source_sha=$FULL"
+    echo "source_tree_sha256=$pristine_src_hash"
     echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "built_node=$(node -v)"
     echo "built_npm=$(npm -v)"
     echo "miniapp_dist_sha256=$mh"
     echo "admin_dist_sha256=$ah"
   } > "$SRC/$MANIFEST"
-  echo "  manifest written: source_sha=$FULL miniapp_dist=$mh admin_dist=$ah"
+  echo "  manifest written: source_sha=$FULL source_tree=$pristine_src_hash miniapp_dist=$mh admin_dist=$ah"
   BUNDLE_ABS="$PWD/$BUNDLE"
   # Exclude only actual secrets + build junk. NOTE: tracked `.env.example` / `.env.staging.example`
   # ARE part of the source tree and MUST ship — so do NOT use a broad `.env.*` glob.
@@ -158,16 +181,26 @@ else
     printf '%s\n' "$list" | grep -q "^$d/dist/index.html$" || { echo ">>> ABORT: $d/dist missing in bundle."; exit 13; }
   done
   printf '%s\n' "$list" | grep -qx "$MANIFEST" || { echo ">>> ABORT: manifest missing in bundle."; exit 13; }
-  # source entries in the bundle must equal EXACTLY the $REF tracked tree
+  # source PATHS in the bundle must equal EXACTLY the $REF tracked tree (catches extra/missing files;
+  # byte-identical CONTENT is separately proven by the source_tree_sha256 pristine==built check above).
   git -c core.autocrlf=false ls-tree -r --name-only "$REF" | LC_ALL=C sort > "$WORK/expected_src.txt"
   printf '%s\n' "$list" | grep -vE "^(miniapp/dist/|admin/dist/|$MANIFEST$)" | grep -v '/$' | grep -v '^$' \
     | LC_ALL=C sort > "$WORK/bundle_src.txt"
   if ! diff -q "$WORK/expected_src.txt" "$WORK/bundle_src.txt" >/dev/null; then
-    echo ">>> ABORT: bundle source tree != $REF tracked tree. Differences:"
+    echo ">>> ABORT: bundle source paths != $REF tracked tree. Differences:"
     diff "$WORK/expected_src.txt" "$WORK/bundle_src.txt" | head -40
     exit 13
   fi
-  echo "  bundle OK: source == $REF tracked tree; both dist present+nonempty; manifest present; no .env/.git/node_modules"
+  # final: the bundled source content-hash must still equal pristine $REF (belt-and-suspenders after tar)
+  mkdir -p "$WORK/unpacked"
+  tar xzf "$BUNDLE" -C "$WORK/unpacked"
+  bundled_src_hash="$(src_tree_hash "$WORK/unpacked")"
+  if [ "$bundled_src_hash" != "$pristine_src_hash" ]; then
+    echo ">>> ABORT: bundled source content-hash != pristine $REF (pristine=$pristine_src_hash bundled=$bundled_src_hash)."
+    exit 13
+  fi
+  echo "  bundle OK: source CONTENT-hash == pristine $REF ($pristine_src_hash); paths match tracked tree;"
+  echo "            both dist present+nonempty; manifest present; no real .env/.git/node_modules"
 fi
 
 if [[ "$BUILD_ONLY" -eq 1 ]]; then
@@ -211,23 +244,28 @@ if ! ssh_do "fingerprint prod deploy config vs bundle" "
   exit 20
 fi
 
-say "3.6 MANIFEST + FRONTEND DIST INTEGRITY (assets built locally; NO server build)"
-if ! ssh_do "verify manifest + dist sha256 (recompute on server)" "
+say "3.6 MANIFEST + FULL SOURCE + FRONTEND DIST INTEGRITY (recomputed on server; BEFORE .env copy)"
+# Runs strictly before phase 4 (.env copy), so the staging tree here is pure bundle content (no .env
+# yet) — the recomputed source_tree_sha256 covers the ENTIRE exact source, not just dist.
+if ! ssh_do "verify manifest + source_tree + dist sha256 (recompute on server)" "
   set -e
   test -f '$STAGE/$MANIFEST' || { echo 'manifest MISSING'; exit 1; }
   src=\$(grep '^source_sha=' '$STAGE/$MANIFEST' | cut -d= -f2)
-  echo \"manifest source_sha=\$src\"
-  [ \"\$src\" = '$FULL' ] || { echo 'manifest source_sha != $FULL'; exit 1; }
-  em=\$(grep '^miniapp_dist_sha256=' '$STAGE/$MANIFEST' | cut -d= -f2)
-  ea=\$(grep '^admin_dist_sha256='   '$STAGE/$MANIFEST' | cut -d= -f2)
+  [ \"\$src\" = '$FULL' ] || { echo \"manifest source_sha=\$src != $FULL\"; exit 1; }
+  est=\$(grep '^source_tree_sha256=' '$STAGE/$MANIFEST' | cut -d= -f2)
+  em=\$(grep  '^miniapp_dist_sha256=' '$STAGE/$MANIFEST' | cut -d= -f2)
+  ea=\$(grep  '^admin_dist_sha256='   '$STAGE/$MANIFEST' | cut -d= -f2)
   for d in $FRONTENDS; do test -s \"$STAGE/\$d/dist/index.html\" || { echo \"\$d/dist missing/empty\"; exit 1; }; done
-  mh=\$( cd '$STAGE/miniapp' && $DIST_HASH_RECIPE )
-  ah=\$( cd '$STAGE/admin'   && $DIST_HASH_RECIPE )
+  st=\$( cd '$STAGE'        && $REMOTE_SRC_HASH )
+  mh=\$( cd '$STAGE/miniapp' && $REMOTE_DIST_HASH )
+  ah=\$( cd '$STAGE/admin'   && $REMOTE_DIST_HASH )
+  echo \"source_tree computed=\$st manifest=\$est\"
   echo \"miniapp_dist computed=\$mh manifest=\$em\"
   echo \"admin_dist   computed=\$ah manifest=\$ea\"
+  [ \"\$st\" = \"\$est\" ] || { echo 'FULL SOURCE content-hash mismatch'; exit 1; }
   [ \"\$mh\" = \"\$em\" ] && [ \"\$ah\" = \"\$ea\" ]
 "; then
-  echo '>>> ABORT: release manifest / frontend dist integrity check failed. Nothing swapped.'
+  echo '>>> ABORT: manifest / full-source / frontend-dist integrity check failed. Nothing swapped.'
   exit 24
 fi
 
