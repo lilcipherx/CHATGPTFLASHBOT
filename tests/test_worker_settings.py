@@ -33,3 +33,14 @@ def test_beat_owns_all_cron_jobs():
     # beat only schedules — it must not also run the heavy job functions
     names = {getattr(f, "__name__", "") for f in BeatSettings.functions}
     assert "process_video_job" not in names
+
+
+def test_beat_and_worker_use_distinct_queues():
+    # Queue isolation (arq-cron-queue fix): arq's run_cron enqueues each cron record to the
+    # worker's OWN queue_name, so beat MUST live on a dedicated queue or the pool would
+    # dequeue unresolvable ``cron:*`` jobs ("function not found") from the shared queue.
+    from core.queue import CRON_QUEUE_NAME, WORKER_QUEUE_NAME
+
+    assert WorkerSettings.queue_name == WORKER_QUEUE_NAME == "arq:queue"
+    assert BeatSettings.queue_name == CRON_QUEUE_NAME == "arq:cron"
+    assert WorkerSettings.queue_name != BeatSettings.queue_name

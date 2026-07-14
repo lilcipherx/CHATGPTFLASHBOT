@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 
 from core.db import SessionFactory
 from core.models import GenerationJob
+from core.queue import WORKER_QUEUE_NAME
 from core.services.refunds import refund_stars
 
 log = structlog.get_logger()
@@ -81,5 +82,10 @@ async def claim_pending_avatars(ctx) -> int:
             )
         ).all()
         for job in rows:
-            await ctx["redis"].enqueue_job("process_avatar_job", str(job.job_id))
+            # This runs in the BEAT process (claim_pending_avatars is a cron), whose
+            # ctx["redis"] pool defaults to the cron queue — target the pool queue
+            # explicitly so process_avatar_job is picked up by WorkerSettings.
+            await ctx["redis"].enqueue_job(
+                "process_avatar_job", str(job.job_id), _queue_name=WORKER_QUEUE_NAME
+            )
         return len(rows)
