@@ -9,6 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
 
+# ARQ queue names. The job-processing pool (WorkerSettings) consumes WORKER_QUEUE_NAME
+# (== arq's default), while the beat scheduler (BeatSettings) is isolated onto
+# CRON_QUEUE_NAME so its cron:* records never land in the pool's queue (which the pool
+# can't resolve — see workers.main). Everything enqueued through THIS module must be RUN
+# BY THE POOL (generation jobs from api/bot, broadcast dispatch from beat), so its pool
+# targets WORKER_QUEUE_NAME explicitly (independent of arq's default).
+WORKER_QUEUE_NAME = "arq:queue"
+CRON_QUEUE_NAME = "arq:cron"
+
 _pool: ArqRedis | None = None
 
 # Premium queue priority (ТЗ §8). ARQ pops jobs from its Redis sorted set in score
@@ -26,7 +35,10 @@ class QueueUnavailable(Exception):
 async def get_queue() -> ArqRedis:
     global _pool
     if _pool is None:
-        _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        _pool = await create_pool(
+            RedisSettings.from_dsn(settings.redis_url),
+            default_queue_name=WORKER_QUEUE_NAME,
+        )
     return _pool
 
 

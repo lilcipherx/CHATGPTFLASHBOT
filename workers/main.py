@@ -16,6 +16,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from core.config import settings
+from core.queue import CRON_QUEUE_NAME, WORKER_QUEUE_NAME
 from workers.autorenew_tasks import renew_subscriptions
 from workers.avatar_tasks import claim_pending_avatars, process_avatar_job
 from workers.billing_tasks import (
@@ -151,9 +152,14 @@ async def _on_shutdown(ctx) -> None:
 
 class WorkerSettings:
     """Job-processing pool. NO cron_jobs here — scheduled tasks live in
-    BeatSettings so running multiple worker replicas can't fire each cron N times."""
+    BeatSettings so running multiple worker replicas can't fire each cron N times.
+
+    Consumes WORKER_QUEUE_NAME only. Beat's cron records live on CRON_QUEUE_NAME, so this
+    pool never dequeues an unresolvable ``cron:*`` job (which it would log as
+    "function not found" and discard — see the queue-isolation fix)."""
 
     redis_settings = _redis_settings()
+    queue_name = WORKER_QUEUE_NAME
     on_startup = _on_startup
     on_shutdown = _on_shutdown
     functions = [
@@ -170,9 +176,16 @@ class WorkerSettings:
 
 class BeatSettings:
     """Single scheduler replica — owns every cron job. Run EXACTLY ONE instance
-    (its tasks enqueue work that the WorkerSettings pool then processes)."""
+    (its tasks enqueue work that the WorkerSettings pool then processes).
+
+    Isolated onto CRON_QUEUE_NAME: arq's ``run_cron`` enqueues each cron record to this
+    worker's own ``queue_name`` (arq 0.26.3, Worker.run_cron), so keeping beat on a
+    dedicated queue stops the pool from ever seeing ``cron:*`` jobs. Work that beat
+    schedules for the pool is enqueued to WORKER_QUEUE_NAME explicitly (core.queue.enqueue
+    pins that; the one ctx-pool dispatch in avatar_tasks passes _queue_name)."""
 
     redis_settings = _redis_settings()
+    queue_name = CRON_QUEUE_NAME
     on_startup = _on_startup
     on_shutdown = _on_shutdown
     functions = [ping]  # arq needs a function list; cron callables live below
