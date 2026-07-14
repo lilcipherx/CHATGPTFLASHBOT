@@ -20,7 +20,9 @@ CURL="${CURL:-curl}"                            # overridable for the contract t
 fail=0
 
 _code() {  # _code <url> -> prints the HTTP status (000 on connect failure)
-  "$CURL" -s -o /dev/null -w '%{http_code}' -m 10 "$1" || echo 000
+  local c
+  c="$("$CURL" -s -o /dev/null -w '%{http_code}' -m 10 "$1" 2>/dev/null)" || true
+  printf '%s' "${c:-000}"
 }
 
 check() {  # check <name> <expected-code> <url>   exact-match a PUBLIC/redirect endpoint

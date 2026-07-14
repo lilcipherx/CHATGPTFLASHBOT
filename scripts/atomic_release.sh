@@ -30,8 +30,8 @@
 #   * config drift          — live Dockerfile/compose/Caddyfile must match the bundle (sha256; ABORT)
 #   * manifest/dist integrity— manifest source_sha == $REF, both dist non-empty, dist sha256 match
 #   * disk >= 7 GB           — checked before the swap/build path AND again right before docker build
-#   * alembic == <expect-current> before swap; == <expect-head> after; 4 new indexes VALID;
-#     all app containers healthy; smoke test passes — any failure exits non-zero.
+#   * alembic == <expect-current> before swap; == <expect-head> after; NO invalid indexes;
+#     all app containers healthy; smoke passes; caddy serves the deployed dist — any failure exits non-zero.
 # No prune / cleanup is ever run on production. The frontend build happens locally, not on prod.
 set -euo pipefail
 
@@ -60,9 +60,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)          DRY=1 ;;
     --build-only)       BUILD_ONLY=1 ;;
-    --expect-current)   EXPECT_CUR="${2:-}"; shift ;;
+    --expect-current)   [[ $# -ge 2 ]] || { echo "ERROR: --expect-current needs a value." >&2; usage >&2; exit 64; }; EXPECT_CUR="$2"; shift ;;
     --expect-current=*) EXPECT_CUR="${1#*=}" ;;
-    --expect-head)      EXPECT_HEAD="${2:-}"; shift ;;
+    --expect-head)      [[ $# -ge 2 ]] || { echo "ERROR: --expect-head needs a value." >&2; usage >&2; exit 64; }; EXPECT_HEAD="$2"; shift ;;
     --expect-head=*)    EXPECT_HEAD="${1#*=}" ;;
     -*) echo "ERROR: unknown flag: $1" >&2; usage >&2; exit 64 ;;
     *)  REF="$1" ;;
@@ -384,10 +384,13 @@ if ! ssh_do "alembic head == $EXPECT_HEAD" "
   echo \"alembic_current=\$cur\"; [ \"\$cur\" = '$EXPECT_HEAD' ]
 "; then echo ">>> FAIL: migrations not at $EXPECT_HEAD"; exit 30; fi
 
-if ! ssh_do "4 new indexes present + VALID" "
-  n=\$($PSQL \"psql -U \\\$POSTGRES_USER -d \\\$POSTGRES_DB -tAc \\\"select count(*) from pg_class c join pg_index i on i.indexrelid=c.oid where c.relname in ('ix_users_bot_id','ix_gifts_buyer_id','ix_gifts_redeemed_by','ix_contest_entries_user_id') and i.indisvalid\\\"\" | tr -d '[:space:]')
-  echo \"valid_new_indexes=\$n (expect 4)\"; [ \"\$n\" = '4' ]
-"; then echo ">>> FAIL: missing/invalid new index (run DROP INDEX CONCURRENTLY IF EXISTS + re-migrate)"; exit 31; fi
+# Migration-agnostic: assert there are NO invalid indexes (the real risk after a migration is an
+# interrupted CREATE INDEX CONCURRENTLY leaving an INVALID index). Works for any --expect-head,
+# unlike a hardcoded per-release index list.
+if ! ssh_do "no INVALID indexes in public schema" "
+  n=\$($PSQL \"psql -U \\\$POSTGRES_USER -d \\\$POSTGRES_DB -tAc \\\"select count(*) from pg_index i join pg_class c on c.oid=i.indexrelid join pg_namespace nsp on nsp.oid=c.relnamespace where nsp.nspname='public' and not i.indisvalid\\\"\" | tr -d '[:space:]')
+  echo \"invalid_indexes=\$n (expect 0)\"; [ \"\$n\" = '0' ]
+"; then echo ">>> FAIL: INVALID index present (interrupted CREATE INDEX CONCURRENTLY? DROP INDEX CONCURRENTLY IF EXISTS <name> + re-migrate)"; exit 31; fi
 
 if ! ssh_do "no unhealthy containers + app services running" "
   bad=\$(docker ps --filter 'health=unhealthy' --format '{{.Names}}')
@@ -404,6 +407,21 @@ if ! ssh_do "smoke test (BASE_URL=http://127.0.0.1:8000)" "cd '$APP_DIR' && BASE
   echo ">>> FAIL: smoke test failed"; exit 33
 fi
 
+# Caddy serves the user-facing frontend (miniapp/admin) and is NOT covered by the smoke test
+# (which hits api on 127.0.0.1:8000 directly) nor by the unhealthy filter (caddy has no healthcheck).
+# Verify it is running AND serving the dist we just swapped in (bind-mounted ./<app>/dist:/srv/<app>).
+if ! ssh_do "caddy running + serving the deployed dist" "
+  set -e
+  st=\$(docker inspect -f '{{.State.Status}}' chatgptflashbot-caddy-1 2>/dev/null)
+  echo \"caddy=\$st\"; [ \"\$st\" = 'running' ] || exit 1
+  for app in $FRONTENDS; do
+    served=\$(docker exec chatgptflashbot-caddy-1 sh -lc \"sha256sum < /srv/\$app/index.html | cut -c1-16\")
+    ondisk=\$(sha256sum < '$APP_DIR'/\$app/dist/index.html | cut -c1-16)
+    echo \"\$app: caddy=\$served dir=\$ondisk\"
+    [ \"\$served\" = \"\$ondisk\" ] || exit 1
+  done
+"; then echo ">>> FAIL: caddy not running, or not serving the deployed dist (user-facing frontend broken)."; exit 34; fi
+
 ssh_do "recent app logs (tail, informational)" "cd '$APP_DIR' && $COMPOSE logs --tail=30 api bot worker" || true
 
 cat <<ROLLBACK
@@ -416,7 +434,10 @@ cat <<ROLLBACK
 # MIGRATION rollback (ONLY if the schema must revert AND expect-current != expect-head; a
 # same-revision release adds nothing to downgrade):
   cd $APP_DIR && $COMPOSE run --rm migrate alembic downgrade $EXPECT_CUR
-# DB restore (LAST RESORT — data corruption only):
-  gunzip -c ~/predeploy-backup-fa654ba-20260713-195247.sql.gz | docker exec -i chatgptflashbot-postgres-1 sh -lc 'psql -U \$POSTGRES_USER -d \$POSTGRES_DB'
+# DB restore (LAST RESORT — data corruption only). Use the pre-deploy backup YOU took for THIS
+# release (do NOT guess); list newest first and VERIFY it is the right one before restoring:
+  ls -t ~/predeploy-backup-*.sql.gz | head -3          # this release's backup: ~/predeploy-backup-${SHORT}-<ts>.sql.gz
+  BK=<the correct pre-deploy backup for this release>
+  gunzip -c "\$BK" | docker exec -i chatgptflashbot-postgres-1 sh -lc 'psql -U \$POSTGRES_USER -d \$POSTGRES_DB'
 =========================================================================================================
 ROLLBACK
