@@ -124,3 +124,41 @@ async def test_faceswap_missing_input_refunds(monkeypatch):
         job_id = job.job_id
     await pt.process_faceswap_job(None, job_id)
     await _assert_failed_and_refunded(job_id, "missing input")
+
+
+async def _upscale_job(factor="x2"):
+    async with SessionFactory() as s:
+        job = GenerationJob(user_id=1, service="upscale", status="pending",
+                            pack_type="image", cost_credits=2,
+                            params={"image": "img_fid", "factor": factor})
+        s.add(job)
+        await s.commit()
+        return job.job_id
+
+
+async def test_upscale_no_backend_refunds(monkeypatch):
+    _patch(monkeypatch, None)
+    job_id = await _upscale_job()
+    await pt.process_upscale_job(None, job_id)
+    async with SessionFactory() as s:
+        job = await s.get(GenerationJob, job_id)
+        assert job.status == "failed"
+        assert "provider not configured" in (job.error or "")
+        assert job.refunded_at is not None
+        bal = (await s.execute(
+            select(PackBalance).where(PackBalance.user_id == 1)
+        )).scalar_one_or_none()
+        assert bal is not None and bal.image_credits == 2  # 2 credits for x2 came back
+
+
+async def test_upscale_success_delivers(monkeypatch):
+    delivered: list = []
+    _patch(monkeypatch, _Backend(JobStatus("complete", result_url="https://x/up.jpg")),
+           delivered=delivered)
+    job_id = await _upscale_job("x4")
+    await pt.process_upscale_job(None, job_id)
+    async with SessionFactory() as s:
+        job = await s.get(GenerationJob, job_id)
+        assert job.status == "complete"
+        assert job.result_url == "https://x/up.jpg"
+    assert delivered == ["https://x/up.jpg"]
