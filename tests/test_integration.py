@@ -293,22 +293,28 @@ async def test_stars_refund_rechecks_status_under_lock(monkeypatch):
 
 
 async def test_avatar_worker_refunds_exact_charge(monkeypatch):
-    # The avatar worker (no provider yet) refunds the exact Stars charge the job paid
-    # for and marks the job failed.
+    # With no gateway account configured, the avatar worker refunds the EXACT Stars
+    # charge the job paid for and marks the job failed.
     from sqlalchemy import select
 
     from core.models import GenerationJob, Transaction, User
+    import workers.avatar_tasks as at
     from workers.avatar_tasks import process_avatar_job
 
     bot = _FakeBot()
     monkeypatch.setattr("core.bot_client.get_bot", lambda: bot)
+    # Skip the Telegram download of the selfie — we're exercising the no-backend refund.
+    async def _fake_upload(file_id, job_id=None):
+        return "https://s3/selfie.jpg"
+    monkeypatch.setattr(at, "_upload_file_id", _fake_upload)
 
     async with SessionFactory() as s:
         s.add(User(user_id=1033, language_code="ru"))
         s.add(Transaction(user_id=1033, product="avatar", amount=400, currency="stars",
                           gateway="stars", gateway_tx_id="charge_w", status="paid"))
         job = GenerationJob(user_id=1033, service="avatar", status="pending",
-                            params={"count": 100, "charge_id": "charge_w"})
+                            params={"selfie_file_id": "self", "count": 100,
+                                    "charge_id": "charge_w"})
         s.add(job)
         await s.commit()
         job_id = job.job_id
@@ -317,7 +323,8 @@ async def test_avatar_worker_refunds_exact_charge(monkeypatch):
 
     async with SessionFactory() as s:
         j = await s.get(GenerationJob, job_id)
-        assert j.status == "failed" and "refunded" in (j.error or "")
+        assert j.status == "failed"
+        assert "provider not configured" in (j.error or "")
         tx = (await s.scalars(select(Transaction))).one()
         assert tx.status == "refunded"
     assert bot.refunded == [(1033, "charge_w")]
