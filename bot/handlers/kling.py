@@ -161,8 +161,13 @@ async def on_kling_photo(
     data = await state.get_data()
     service = data["kind"]
 
-    provider = provider_for(service)
-    if provider is None or not provider.is_available():
+    # Allow the job when EITHER a direct env provider is available OR an admin gateway
+    # account serves this Kling effect/motion model (the worker routes through the pool).
+    # Mirrors on_video_prompt; gate BEFORE charging so nothing is deducted when nothing
+    # can serve.
+    from core.services.media_dispatch import has_backend
+    if not await has_backend(session, modality="video", model_key=service,
+                             direct_provider=provider_for(service)):
         await message.answer(_("gen.unavailable"))
         return
 
