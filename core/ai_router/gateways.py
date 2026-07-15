@@ -107,6 +107,32 @@ def _result_url(obj: Any) -> str | None:
     return _first_url(obj)
 
 
+def _result_urls(obj: Any) -> list[str]:
+    """ALL http(s) URLs in the result, order-preserving + de-duplicated. Prefers the
+    known result-key subtrees (so previews elsewhere don't intrude), else a full walk.
+    Used for multi-image results (avatar)."""
+    out: list[str] = []
+
+    def _walk(o: Any) -> None:
+        if isinstance(o, str):
+            if o.startswith("http") and o not in out:
+                out.append(o)
+        elif isinstance(o, dict):
+            for v in o.values():
+                _walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                _walk(v)
+
+    if isinstance(obj, dict):
+        for key in _RESULT_KEYS:
+            if key in obj:
+                _walk(obj[key])
+    if not out:
+        _walk(obj)
+    return out
+
+
 class KieGateway(MediaGateway):
     """Kie.ai unified jobs API (image/video/music). Bearer auth, async tasks.
 
@@ -167,8 +193,9 @@ class KieGateway(MediaGateway):
                 except json.JSONDecodeError:
                     parsed = raw
             url = _result_url(parsed)
+            urls = _result_urls(parsed)
             if url:
-                return JobStatus("complete", result_url=url)
+                return JobStatus("complete", result_url=url, result_urls=urls)
             return JobStatus("failed", error="kie: no result url")
         return JobStatus("processing")
 
@@ -226,8 +253,9 @@ class MuapiGateway(MediaGateway):
         if status in cls._DONE:
             payload = data.get("outputs") or data.get("output") or data.get("result") or data
             url = _result_url(payload)
+            urls = _result_urls(payload)
             if url:
-                return JobStatus("complete", result_url=url)
+                return JobStatus("complete", result_url=url, result_urls=urls)
             return JobStatus("failed", error="muapi: no result url")
         return JobStatus("processing")
 

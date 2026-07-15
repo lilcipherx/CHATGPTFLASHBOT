@@ -37,6 +37,9 @@ class JobStatus:
     status: str  # pending | processing | complete | failed
     result_url: str | None = None
     error: str | None = None
+    # Additive: ALL result URLs for multi-image jobs (avatar). Single-image callers
+    # keep using result_url (== result_urls[0] when populated).
+    result_urls: list[str] = field(default_factory=list)
 
 
 class ProviderUnavailable(Exception):
