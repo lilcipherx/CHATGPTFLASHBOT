@@ -51,7 +51,17 @@ async def _balance(session, uid: int) -> int:
     return b.image_credits if b else 0
 
 
+async def _allow_backend(monkeypatch):
+    # The charge/variant logic runs downstream of the has_backend availability gate;
+    # force the gate open so these tests exercise charging/refunding, not availability.
+    async def _true(*a, **k):
+        return True
+    monkeypatch.setattr("core.services.media_dispatch.has_backend", _true)
+
+
 async def test_charges_for_all_variants(monkeypatch):
+    await _allow_backend(monkeypatch)
+
     async def fake_gen(service_key, prompt, cfg):
         return [ImageResult(url=f"u{i}") for i in range(int(cfg.get("count", 1)))]
     monkeypatch.setattr(photo, "generate_image", fake_gen)
@@ -70,6 +80,8 @@ async def test_charges_for_all_variants(monkeypatch):
 
 
 async def test_refunds_undelivered_variants(monkeypatch):
+    await _allow_backend(monkeypatch)
+
     async def fake_gen(service_key, prompt, cfg):
         return [ImageResult(url="only-one")]  # provider returns 1 of 3
     monkeypatch.setattr(photo, "generate_image", fake_gen)

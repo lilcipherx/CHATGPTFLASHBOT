@@ -105,6 +105,18 @@ async def resolve_backends(
     return backends
 
 
+async def has_backend(session, *, modality: str, model_key: str, direct_provider) -> bool:
+    """True when a generation for (modality, model_key) has at least one usable backend
+    — a configured gateway account (via the AIModel catalog) OR an available direct
+    provider, and the provider key is not admin-disabled. Reuses resolve_backends so
+    the pre-charge availability check matches what the worker will actually try."""
+    backends = await resolve_backends(
+        session, modality=modality, model_key=model_key, params={},
+        direct_provider=direct_provider,
+    )
+    return bool(backends)
+
+
 async def submit_first(session, backends: list[Backend]) -> tuple[Backend | None, str | None]:
     """Submit to each backend in order; return (backend, task_id) for the first
     that accepts. Marks account health on success/failure. (None, None) if all

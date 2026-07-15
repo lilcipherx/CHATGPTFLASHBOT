@@ -151,8 +151,12 @@ async def on_video_prompt(
         await message.answer(_("mod.blocked"))
         return
 
-    provider = provider_for(service)
-    if provider is None or not provider.is_available():
+    # Allow the job when EITHER a direct env provider is available OR an admin has
+    # configured a gateway account for this video model (the worker routes through the
+    # pool). Gate BEFORE charging, so nothing is deducted when nothing can serve.
+    from core.services.media_dispatch import has_backend
+    if not await has_backend(session, modality="video", model_key=service,
+                             direct_provider=provider_for(service)):
         await message.answer(_("gen.unavailable"))
         return
 

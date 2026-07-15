@@ -409,6 +409,16 @@ async def _run_photo(
     — set from the config UI's count selector and defaulted from the admin
     `generation.image_variants` knob). Cost scales with the number requested, and
     any variant the provider fails to return is refunded."""
+    # Gate BEFORE charging: proceed only when a direct provider is available OR an
+    # admin gateway account serves this image model (the pool). Avoids a charge+refund
+    # cycle when nothing can serve, and opens gateway-only services from the bot menu.
+    from core.ai_router.image_adapters import _IMAGE_PROVIDERS
+    from core.services.media_dispatch import has_backend
+    if not await has_backend(session, modality="image", model_key=spec.key,
+                             direct_provider=_IMAGE_PROVIDERS.get(spec.key)):
+        await message.answer(_("gen.unavailable"))
+        return
+
     per = spec.cost(cfg)                              # cost of ONE image
     count = max(1, int(cfg.get("count", 1) or 1))
     cost = per * count                               # charge for all requested
