@@ -196,3 +196,17 @@ def test_config_stripe_enabled_with_webhook_secret_ok():
 def test_config_stripe_disabled_needs_no_webhook_secret():
     s = _prod_settings(stripe_secret="", stripe_webhook_secret="")
     s._require_prod_secret()  # Stripe off → no requirement
+
+
+# ---------- ADMIN_JWT_SECRET must be long enough, not just non-default ----------
+def test_config_short_admin_jwt_secret_fails():
+    """A non-default but SHORT secret is too weak for HS256 (jwt warns <32 bytes).
+    Fail closed at boot so a weak admin-token key never ships to production."""
+    s = _prod_settings(admin_jwt_secret="short-but-not-default")  # 21 chars
+    with pytest.raises(RuntimeError, match="ADMIN_JWT_SECRET"):
+        s._require_prod_secret()
+
+
+def test_config_long_admin_jwt_secret_ok():
+    s = _prod_settings(admin_jwt_secret="a" * 32)
+    s._require_prod_secret()  # 32-char secret passes

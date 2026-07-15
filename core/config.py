@@ -236,6 +236,15 @@ class Settings(BaseSettings):
                 "ADMIN_JWT_SECRET is still the default 'change-me-in-prod'. "
                 "Set a strong random secret before running in production."
             )
+        # A non-default but short secret still ships a weak HS256 key (PyJWT warns
+        # below 32 bytes). Fail closed at boot so a brute-forceable admin-token key
+        # never reaches production — generate one with `openssl rand -hex 32`.
+        if len(self.admin_jwt_secret) < 32:
+            raise RuntimeError(
+                "ADMIN_JWT_SECRET is too short (< 32 chars). Set a strong random "
+                "secret of at least 32 chars (e.g. `openssl rand -hex 32`) — a short "
+                "HS256 signing key is weak and brute-forceable."
+            )
         if not self.enc_secret:
             raise RuntimeError(
                 "ENC_SECRET is empty. Set a dedicated secret for encrypting stored "

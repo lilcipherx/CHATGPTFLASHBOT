@@ -59,9 +59,13 @@ changes the hash.
    locally; this proves neither the exact source nor the shipped assets were altered in transit.)
 3. **Disk ≥ 7 GB, checked twice** — staging headroom (exit 21) and again right before the docker
    build/swap (exit 23). **No `prune`/cleanup is ever run on production.**
-4. **Verification** — alembic must reach `--expect-head` (exit 30); the 4 F2/F3 indexes must exist AND be
-   `indisvalid` (exit 31); no container `health=unhealthy` and api/bot/worker/beat must be `running`
-   (exit 32); the smoke test must pass (exit 33). The smoke runs as
+4. **Verification** — alembic must reach `--expect-head` (exit 30); there must be **NO invalid indexes**
+   in `public` (migration-agnostic — catches an interrupted `CREATE INDEX CONCURRENTLY`; exit 31); no
+   container `health=unhealthy` and api/bot/worker/beat must be `running` (exit 32); the smoke test must
+   pass (exit 33); and **caddy must be running AND serving the deployed dist** (served
+   `/srv/{miniapp,admin}/index.html` sha == the swapped `<app>/dist/index.html`; exit 34 — caddy is not
+   covered by the smoke test, which hits api on 127.0.0.1:8000 directly, nor by the unhealthy filter).
+   The smoke runs as
    `BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh` — prod publishes api only on the
    loopback `127.0.0.1:8000` (`docker-compose.prod.yml` `api: ports: !reset []`); `127.0.0.1` (not
    `localhost`) avoids IPv6 `::1`. Contract: PUBLIC `/health` + `/health/ready` must be 200, `/admin`
@@ -157,10 +161,10 @@ ssh flashbot: cd CHATGPTFLASHBOT
 
 # ---- VERIFY (each check exits non-zero on failure — no masking) ----
 ssh flashbot: alembic_current == <--expect-head>                                   (else exit 30)
-              4 indexes ix_users_bot_id / ix_gifts_buyer_id / ix_gifts_redeemed_by /
-                ix_contest_entries_user_id present + indisvalid = t                 (else exit 31)
+              count of INVALID indexes in public == 0 (migration-agnostic)          (else exit 31)
               no health=unhealthy container AND api/bot/worker/beat == running      (else exit 32)
               BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh             (else exit 33)
+              caddy running AND served /srv/{miniapp,admin}/index.html == swapped dist (else exit 34)
               docker compose logs --tail=30 api bot worker                          (informational)
 ```
 
@@ -194,8 +198,11 @@ cd /home/ubuntu/CHATGPTFLASHBOT && docker compose -f docker-compose.yml -f docke
 # same-revision release adds nothing to downgrade):
 cd /home/ubuntu/CHATGPTFLASHBOT && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic downgrade <--expect-current>
 
-# DB restore (LAST RESORT — data corruption only; our change is additive indexes):
-gunzip -c ~/predeploy-backup-fa654ba-20260713-195247.sql.gz | docker exec -i chatgptflashbot-postgres-1 sh -lc 'psql -U $POSTGRES_USER -d $POSTGRES_DB'
+# DB restore (LAST RESORT — data corruption only). Use the pre-deploy backup taken for THIS release
+# (~/predeploy-backup-<short-sha>-<ts>.sql.gz). Do NOT guess a filename — list newest first and verify:
+ls -t ~/predeploy-backup-*.sql.gz | head -3
+BK=<the correct pre-deploy backup for this release>
+gunzip -c "$BK" | docker exec -i chatgptflashbot-postgres-1 sh -lc 'psql -U $POSTGRES_USER -d $POSTGRES_DB'
 ```
 
 ## Prerequisites before running (owner)
