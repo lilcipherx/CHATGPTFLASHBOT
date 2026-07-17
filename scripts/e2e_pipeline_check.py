@@ -3,10 +3,14 @@
 Boots ``scripts.mock_ai_server`` on a free localhost port, then drives the REAL
 generation code paths for every modality and asserts each completes:
 
-    chat  -> registry.chat            -> mock /v1/chat/completions
-    photo -> process_photoeffect_job  -> managed/direct image -> mock
-    video -> process_video_job        -> Kie createTask/recordInfo -> mock
-    music -> process_music_job        -> Kie createTask/recordInfo -> mock
+    chat   -> registry.chat            -> mock /v1/chat/completions
+    photo  -> process_photoeffect_job  -> managed/direct image -> mock
+    video  -> process_video_job        -> Kie createTask/recordInfo -> mock
+    music  -> process_music_job        -> Kie createTask/recordInfo -> mock
+    search -> search_adapter.run_search -> ai_chat -> mock /v1/chat/completions
+    stt    -> stt().transcribe          -> mock /v1/audio/transcriptions
+    tts    -> tts().speak               -> mock /v1/audio/speech
+    avatar -> process_avatar_job        -> Kie createTask/recordInfo -> mock
 
 request -> GenerationJob -> worker -> provider(mock, real HTTP) -> job=complete
 -> Telegram delivery (captured by a fake bot).
@@ -93,6 +97,7 @@ async def _run_flows() -> int:
         async def send_audio(self, c, audio, **k): sends.append(("audio", str(audio)[:50]))
         async def send_document(self, c, d, **k): sends.append(("document", str(d)[:50]))
         async def send_message(self, c, t, **k): sends.append(("message", str(t)[:50]))
+        async def send_media_group(self, c, media, **k): sends.append(("album", len(media)))
         async def download(self, fid): raise RuntimeError("no telegram in e2e")
 
     import core.bot_client as bc
@@ -173,6 +178,70 @@ async def _run_flows() -> int:
         except Exception as e:
             print(f"FAIL  {modality:5} -> {type(e).__name__}: {e}")
             failures += 1
+
+    # SEARCH (/s -> resolve_search_model -> ai_chat -> mock chat)
+    try:
+        async with SessionFactory() as s:
+            s.add(AIModel(key="sonar", title="Sonar", upstream_model="sonar",
+                          modality="text", account_kind=None, search=True, enabled=True))
+            await s.commit()
+        from core.ai_router.search_adapter import run_search
+        from core.models import User
+        async with SessionFactory() as s:
+            u = await s.get(User, UID)
+            res = await run_search(s, u, "latest AI news", "You are a search assistant.", "en")
+        txt = getattr(res, "text", "")
+        rok = getattr(res, "ok", False)
+        ok = rok and "mock" in str(txt).lower()
+        print(f"{'PASS' if ok else 'FAIL'}  search -> ok={rok} {str(txt)[:40]!r}")
+        failures += 0 if ok else 1
+    except Exception as e:
+        print(f"FAIL  search -> {type(e).__name__}: {e}")
+        failures += 1
+
+    # STT (voice input -> mock /v1/audio/transcriptions)
+    try:
+        from core.ai_router.stt_adapter import stt
+        text = await stt().transcribe(b"fake-ogg-audio", filename="voice.ogg", locale="en")
+        ok = "mock" in text.lower()
+        print(f"{'PASS' if ok else 'FAIL'}  stt    -> {text[:40]!r}")
+        failures += 0 if ok else 1
+    except Exception as e:
+        print(f"FAIL  stt    -> {type(e).__name__}: {e}")
+        failures += 1
+
+    # TTS (voice output -> mock /v1/audio/speech)
+    try:
+        from core.ai_router.tts_adapter import tts
+        audio = await tts().speak("hello world")
+        ok = isinstance(audio, (bytes, bytearray)) and len(audio) > 0
+        print(f"{'PASS' if ok else 'FAIL'}  tts    -> {len(audio) if audio else 0} bytes")
+        failures += 0 if ok else 1
+    except Exception as e:
+        print(f"FAIL  tts    -> {type(e).__name__}: {e}")
+        failures += 1
+
+    # AVATAR (worker -> Kie image createTask/recordInfo -> mock -> album delivery)
+    try:
+        import workers.avatar_tasks as at
+
+        # Stub the selfie-upload boundary (Telegram file download -> our storage),
+        # which has no real bot/file here; the rest is production code.
+        async def _fake_selfie(file_id, job_id):
+            return "https://via.placeholder.com/selfie.jpg"
+        at._upload_file_id = _fake_selfie
+
+        await _seed("image", "avatar", "avatar-model")
+        jid = await _new_job("avatar", "avatar", None,
+                             {"prompt": "avatar", "selfie_file_id": "self123", "count": 1})
+        await at.process_avatar_job({}, jid)
+        st, url = await _status(jid)
+        ok = st in ("complete", "delivered") and bool(url)
+        print(f"{'PASS' if ok else 'FAIL'}  avatar -> status={st} url={str(url)[:45]}")
+        failures += 0 if ok else 1
+    except Exception as e:
+        print(f"FAIL  avatar -> {type(e).__name__}: {e}")
+        failures += 1
 
     print(f"deliveries captured: {sends}")
     await engine.dispose()
