@@ -52,6 +52,11 @@ class Settings(BaseSettings):
 
     # --- Infra ---
     database_url: str = "postgresql+asyncpg://aiobot:aiobot@localhost:5432/aiobot"
+    # Optional read-replica DSN. When set, read-only sessions (get_read_session /
+    # ReadSessionFactory) route to the replica so read-heavy endpoints (History,
+    # analytics dashboards, catalogs) offload the primary. Empty = reads use the
+    # primary (a no-op until a replica is provisioned). Never point writes here.
+    database_read_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
     # DB connection pool, per process. Total server connections =
     # (db_pool_size + db_max_overflow) × every process (each gunicorn worker, the
