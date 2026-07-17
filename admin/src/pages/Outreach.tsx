@@ -1,6 +1,8 @@
 // Рассылки — объединяет «Рассылки» (пользователям) и «Автопостинг» (в каналы) в
 // одну страницу с вкладками. Контейнер лишь переключает вкладки.
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+
+import { useTabParam } from "../lib/useTabParam";
 
 const Broadcasts = lazy(() => import("./Broadcasts").then((m) => ({ default: m.Broadcasts })));
 const ChannelPosts = lazy(() => import("./ChannelPosts").then((m) => ({ default: m.ChannelPosts })));
@@ -24,7 +26,7 @@ export function Outreach() {
     { id: "autoposting", label: "Автопостинг", icon: "rss_feed", minRole: "moderator", el: <ChannelPosts /> },
   ].filter((t) => myRank >= ROLE_RANK[t.minRole]);
 
-  const [tab, setTab] = useState<string>(tabs[0]?.id ?? "broadcast");
+  const [tab, setTab] = useTabParam(tabs.map((t) => t.id), tabs[0]?.id ?? "broadcast");
   const active = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (

@@ -1,6 +1,8 @@
 // Дашборд — объединяет живой обзор (KPI) и «Аналитику» (глубокие графики) в одну
 // страницу с вкладками. Контейнер лишь переключает вкладки.
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+
+import { useTabParam } from "../lib/useTabParam";
 
 const Dashboard = lazy(() => import("./Dashboard").then((m) => ({ default: m.Dashboard })));
 const Analytics = lazy(() => import("./Analytics").then((m) => ({ default: m.Analytics })));
@@ -24,7 +26,7 @@ export function Overview() {
     { id: "analytics", label: "Аналитика", icon: "analytics", minRole: "moderator", el: <Analytics /> },
   ].filter((t) => myRank >= ROLE_RANK[t.minRole]);
 
-  const [tab, setTab] = useState<string>(tabs[0]?.id ?? "dashboard");
+  const [tab, setTab] = useTabParam(tabs.map((t) => t.id), tabs[0]?.id ?? "dashboard");
   const active = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (

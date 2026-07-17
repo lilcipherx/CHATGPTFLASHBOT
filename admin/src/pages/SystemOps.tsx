@@ -1,6 +1,8 @@
 // Обслуживание — объединяет «Обслуживание» (БД/кэш/бэкапы) и «Планировщик» (cron)
 // в одну страницу с вкладками. Контейнер лишь переключает вкладки.
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+
+import { useTabParam } from "../lib/useTabParam";
 
 const Maintenance = lazy(() => import("./Maintenance").then((m) => ({ default: m.Maintenance })));
 const Scheduler = lazy(() => import("./Scheduler").then((m) => ({ default: m.Scheduler })));
@@ -24,7 +26,7 @@ export function SystemOps() {
     { id: "scheduler", label: "Планировщик", icon: "schedule", minRole: "superadmin", el: <Scheduler /> },
   ].filter((t) => myRank >= ROLE_RANK[t.minRole]);
 
-  const [tab, setTab] = useState<string>(tabs[0]?.id ?? "maintenance");
+  const [tab, setTab] = useTabParam(tabs.map((t) => t.id), tabs[0]?.id ?? "maintenance");
   const active = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (

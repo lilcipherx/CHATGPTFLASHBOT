@@ -1,7 +1,9 @@
 // Доступ и безопасность — единая страница для того, что раньше было тремя разделами
 // (Админы / Безопасность / Аудит-лог). Контейнер лишь переключает вкладки; сами
 // страницы переиспользуются как есть (внутренности не переписываются).
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+
+import { useTabParam } from "../lib/useTabParam";
 
 const Admins = lazy(() => import("./Admins").then((m) => ({ default: m.Admins })));
 const Security = lazy(() => import("./Security").then((m) => ({ default: m.Security })));
@@ -27,7 +29,7 @@ export function AccessSecurity() {
     { id: "audit", label: "Аудит-лог", icon: "receipt_long", minRole: "support", el: <Audit /> },
   ].filter((t) => myRank >= ROLE_RANK[t.minRole]);
 
-  const [tab, setTab] = useState<string>(tabs[0]?.id ?? "audit");
+  const [tab, setTab] = useTabParam(tabs.map((t) => t.id), tabs[0]?.id ?? "audit");
   const active = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (

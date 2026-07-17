@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The three merged pages are stubbed so mounting a tab doesn't hit the API — this
@@ -17,7 +18,7 @@ function render() {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  act(() => root!.render(<AISetup />));
+  act(() => root!.render(<MemoryRouter><AISetup /></MemoryRouter>));
   return container;
 }
 
@@ -50,5 +51,17 @@ describe("AISetup — role-gated tabs", () => {
     expect(labels).not.toContain("Роутинг");
     expect(labels).toContain("Провайдеры");
     expect(labels).toContain("Ключи API");
+  });
+
+  it("deep-links straight to a tab via ?tab= (opens Ключи API)", () => {
+    localStorage.setItem("admin_role", "superadmin");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root!.render(
+      <MemoryRouter initialEntries={["/?tab=keys"]}><AISetup /></MemoryRouter>,
+    ));
+    const active = container.querySelector(".seg-tabs button.on");
+    expect(active?.textContent).toContain("Ключи API");
   });
 });

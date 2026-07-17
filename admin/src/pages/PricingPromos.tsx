@@ -1,6 +1,8 @@
 // Цены и промо — объединяет разделы «Цены» и «Промокоды» в одну страницу с
 // вкладками. Контейнер лишь переключает вкладки; сами страницы переиспользуются.
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+
+import { useTabParam } from "../lib/useTabParam";
 
 const Pricing = lazy(() => import("./Pricing").then((m) => ({ default: m.Pricing })));
 const Promos = lazy(() => import("./Promos").then((m) => ({ default: m.Promos })));
@@ -24,7 +26,7 @@ export function PricingPromos() {
     { id: "promos", label: "Промокоды", icon: "confirmation_number", minRole: "moderator", el: <Promos /> },
   ].filter((t) => myRank >= ROLE_RANK[t.minRole]);
 
-  const [tab, setTab] = useState<string>(tabs[0]?.id ?? "promos");
+  const [tab, setTab] = useTabParam(tabs.map((t) => t.id), tabs[0]?.id ?? "promos");
   const active = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (
