@@ -22,7 +22,7 @@ from core.constants import (
     PACK_PRICES,
     SUBSCRIPTION_PRICES,
 )
-from core.db import get_session
+from core.db import get_read_session, get_session
 from core.models import (
     GenerationJob,
     MiniAppPhotoEffect,
@@ -410,7 +410,9 @@ async def redeem_promo(
 async def photo_effects(
     category: str = "all",
     tg=Depends(current_webapp_user),
-    session: AsyncSession = Depends(get_session),
+    # PERF: pure catalog read (no user creation / no writes) → route to the read
+    # replica when configured (DATABASE_READ_URL); falls back to primary otherwise.
+    session: AsyncSession = Depends(get_read_session),
 ) -> list[dict]:
     stmt = select(MiniAppPhotoEffect).where(MiniAppPhotoEffect.enabled.is_(True))
     if category != "all":
@@ -434,7 +436,8 @@ async def photo_effects(
 async def video_effects(
     category: str = "all",
     tg=Depends(current_webapp_user),
-    session: AsyncSession = Depends(get_session),
+    # PERF: pure catalog read → read replica when configured (see photo_effects).
+    session: AsyncSession = Depends(get_read_session),
 ) -> list[dict]:
     stmt = select(MiniAppVideoEffect).where(MiniAppVideoEffect.enabled.is_(True))
     if category != "all":
@@ -569,7 +572,8 @@ async def list_effects(
     category: str = "all",
     trending: bool = False,
     tg=Depends(current_webapp_user),
-    session: AsyncSession = Depends(get_session),
+    # PERF: pure catalog read → read replica when configured (see photo_effects).
+    session: AsyncSession = Depends(get_read_session),
 ) -> list[dict]:
     model = _KIND_MODEL.get(kind)
     if model is None:
