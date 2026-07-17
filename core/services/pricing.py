@@ -303,6 +303,11 @@ async def set_config(session: AsyncSession, patch: dict[str, Any]) -> dict[str, 
     await session.commit()
     try:
         await redis_client.delete(_CACHE_KEY)
+        # FIX: PERF-A1 - the Mini App sections cache (api.routers.miniapp) is derived
+        # from the ``miniapp_sections`` override, so an admin toggling a section must
+        # invalidate it too — otherwise the storefront lags by up to its TTL.
+        if "miniapp_sections" in clean:
+            await redis_client.delete("cache:miniapp_sections")
     except Exception as exc:  # noqa: BLE001
         import structlog
         structlog.get_logger().warning('core.services.pricing.set_config_failed', error=str(exc))

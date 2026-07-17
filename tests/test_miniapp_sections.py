@@ -28,6 +28,15 @@ async def _schema():
 
 
 async def _sections() -> dict:
+    # PERF-A1: _miniapp_sections is now Redis-cached (fakeredis is a process
+    # singleton), so clear both the sections cache AND the business-config cache
+    # it derives from immediately before computing — these tests assert the live
+    # compute path, not cache reuse, and must not see a value another test left.
+    for key in (miniapp._SECTIONS_CACHE_KEY, pricing._CACHE_KEY):
+        try:
+            await pricing.redis_client.delete(key)
+        except Exception:  # noqa: BLE001
+            pass
     async with SessionFactory() as s:
         return await miniapp._miniapp_sections(s)
 

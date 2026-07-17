@@ -111,12 +111,36 @@ def _direct_provider_available(kind: str) -> bool:
     return False
 
 
+# FIX: PERF-A1 - the Mini App storefront sections are recomputed on every /profile
+# load (the hottest endpoint), and the "auto" path issues a candidate_accounts DB
+# query per modality. Provider availability + the admin section override change
+# rarely, so cache the whole (global, not per-user) result in Redis for a short TTL.
+# A load-test showed /profile at p99 ~8s under 100-way concurrency, dominated by
+# this uncached fan-out. Staleness is bounded by the TTL; set_config invalidates it
+# on an admin section-override change.
+_SECTIONS_CACHE_KEY = "cache:miniapp_sections"
+_SECTIONS_CACHE_TTL = 30  # seconds
+
+
 async def _miniapp_sections(session: AsyncSession) -> dict[str, bool]:
     """Which effect segments (photo/video) the Mini App should show. Hybrid: the
     admin ``miniapp_sections`` override ("on"/"off") wins; "auto" (default) shows a
     segment only when a working provider exists for its modality — a configured
     Kie/MuAPI aggregator account OR a direct env-key adapter — so the storefront
-    never offers an effect that could only refund."""
+    never offers an effect that could only refund.
+
+    Redis-cached (best-effort, TTL ``_SECTIONS_CACHE_TTL``) so a burst of profile
+    loads doesn't re-query provider availability every time. Any Redis hiccup falls
+    through to a live recompute."""
+    from core.redis_client import redis_client
+
+    try:
+        raw = await redis_client.get(_SECTIONS_CACHE_KEY)
+        if raw:
+            return json.loads(raw)
+    except Exception:  # noqa: BLE001 — cache is best-effort
+        pass
+
     from core.services import ai_routing as routing
 
     cfg = await pricing.get_config(session)
@@ -131,6 +155,11 @@ async def _miniapp_sections(session: AsyncSession) -> dict[str, bool]:
         else:
             accounts = await routing.candidate_accounts(session, modality)
             out[kind] = bool(accounts) or _direct_provider_available(kind)
+
+    try:
+        await redis_client.set(_SECTIONS_CACHE_KEY, json.dumps(out), ex=_SECTIONS_CACHE_TTL)
+    except Exception:  # noqa: BLE001 — cache is best-effort
+        pass
     return out
 
 
