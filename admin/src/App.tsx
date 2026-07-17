@@ -145,6 +145,24 @@ function RoleGuard({ minRole, children }: { minRole?: string; children: ReactNod
   return <>{children}</>;
 }
 
+// Light/dark theme toggle. The active theme lives on <html data-theme> (set before
+// first paint in main.tsx) and persists in localStorage.
+export function ThemeToggle() {
+  const [theme, setTheme] = useState<string>(() => document.documentElement.dataset.theme || "dark");
+  const toggle = () => {
+    const next = theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("admin_theme", next);
+    setTheme(next);
+  };
+  return (
+    <button className="sb-logout" aria-label="Переключить тему"
+      title={theme === "light" ? "Тёмная тема" : "Светлая тема"} onClick={toggle}>
+      <span className="ms sm">{theme === "light" ? "dark_mode" : "light_mode"}</span>
+    </button>
+  );
+}
+
 function AdminShell({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -222,6 +240,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
             <div className="who" title={email}>{email}</div>
             <div className="role">{role}</div>
           </div>
+          <ThemeToggle />
           <button className="sb-logout" title="Выйти" onClick={() => { logout(); onLogout(); }}>
             <span className="ms sm">logout</span>
           </button>

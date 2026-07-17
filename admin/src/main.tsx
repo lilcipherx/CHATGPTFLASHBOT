@@ -23,6 +23,10 @@ import "@fontsource/inter/700.css";
 import "material-symbols/outlined.css";
 import "./styles.css";
 
+// Apply the saved colour theme before the first paint (default: dark, the original
+// look). The sidebar toggle updates this + persists to localStorage.
+document.documentElement.dataset.theme = localStorage.getItem("admin_theme") || "dark";
+
 // HashRouter (not BrowserRouter): the admin SPA is served as static files (dev:
 // FastAPI StaticFiles at /admin/, prod: Caddy on the admin subdomain). The hash is
 // never sent to the server, so direct links / F5 / deep links always load

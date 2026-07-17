@@ -34,6 +34,30 @@
   --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 
+/* Light theme — toggled via <html data-theme="light"> (see main.tsx + the sidebar
+   toggle). Overrides only the colour tokens; every rule already reads them through
+   var(), so the whole panel re-themes with no per-rule changes. The neon-lime accent
+   is darkened for readable contrast as text/links on a white surface (accent-ink
+   flips to white so accent-background buttons stay legible). */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --surface-1: #eceef1;
+  --panel: #ffffff;
+  --panel-2: #f3f4f6;
+  --glass: rgba(255, 255, 255, 0.72);
+  --border: rgba(16, 18, 24, 0.10);
+  --border-hi: rgba(16, 18, 24, 0.22);
+  --text: #16181d;
+  --dim: #4b5563;
+  --hint: #7b8394;
+  --accent: #4d7c00;
+  --accent-2: #3f6800;
+  --accent-ink: #ffffff;
+  --ok: #2e7d32;
+  --danger: #c0362c;
+}
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 /* FIX: POLISH-13 - Global dark scrollbars so EVERY scroll surface matches the
