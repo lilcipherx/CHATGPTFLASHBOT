@@ -1,7 +1,9 @@
 // Контент — объединяет всё, что админ показывает пользователям: «Эффекты» (каталог
 // генераций), «Карусель» (промо-слайды) и «Кнопки-ссылки». Вкладки; страницы
 // переиспользуются как есть.
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+
+import { useTabParam } from "../lib/useTabParam";
 
 const Effects = lazy(() => import("./Effects").then((m) => ({ default: m.Effects })));
 const Banners = lazy(() => import("./Banners").then((m) => ({ default: m.Banners })));
@@ -27,7 +29,7 @@ export function Content() {
     { id: "buttons", label: "Кнопки-ссылки", icon: "link", minRole: "moderator", el: <CustomButtons /> },
   ].filter((t) => myRank >= ROLE_RANK[t.minRole]);
 
-  const [tab, setTab] = useState<string>(tabs[0]?.id ?? "effects");
+  const [tab, setTab] = useTabParam(tabs.map((t) => t.id), tabs[0]?.id ?? "effects");
   const active = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (

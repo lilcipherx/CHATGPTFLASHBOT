@@ -96,9 +96,37 @@ const ROUTES: RouteDef[] = [
 // We can't filter at module load (no role yet), so AdminShell filters PALETTE_ITEMS
 // by role before passing to CommandPalette. The unfiltered list is kept for the
 // route table itself; the palette gets a role-filtered slice.
-const PALETTE_ITEMS = ROUTES.map(({ slug, label, icon, section, minRole }) => ({
-  id: slug, label, icon, section, minRole,
-}));
+// Sub-tabs of the consolidated pages, surfaced in the command palette so ⌘K jumps
+// straight to a specific tab (e.g. «Ключи API») — restoring the direct access the
+// page consolidation folded into tabs. Selecting one navigates to <slug>?tab=<id>,
+// which the tabbed page reads via useTabParam.
+const SUB_TABS: {
+  parent: string; parentLabel: string; tab: string; label: string;
+  icon: string; minRole: RouteDef["minRole"];
+}[] = [
+  { parent: "ai-setup", parentLabel: "AI-настройка", tab: "routing", label: "Роутинг", icon: "memory", minRole: "superadmin" },
+  { parent: "ai-setup", parentLabel: "AI-настройка", tab: "providers", label: "Провайдеры", icon: "dns", minRole: "admin" },
+  { parent: "ai-setup", parentLabel: "AI-настройка", tab: "keys", label: "Ключи API", icon: "key", minRole: "admin" },
+  { parent: "access-security", parentLabel: "Доступ и безопасность", tab: "admins", label: "Админы", icon: "admin_panel_settings", minRole: "superadmin" },
+  { parent: "access-security", parentLabel: "Доступ и безопасность", tab: "security", label: "Безопасность", icon: "shield", minRole: "superadmin" },
+  { parent: "access-security", parentLabel: "Доступ и безопасность", tab: "audit", label: "Аудит-лог", icon: "receipt_long", minRole: "support" },
+  { parent: "pricing-promos", parentLabel: "Цены и промо", tab: "pricing", label: "Цены", icon: "sell", minRole: "superadmin" },
+  { parent: "pricing-promos", parentLabel: "Цены и промо", tab: "promos", label: "Промокоды", icon: "confirmation_number", minRole: "moderator" },
+  { parent: "outreach", parentLabel: "Рассылки", tab: "autoposting", label: "Автопостинг", icon: "rss_feed", minRole: "moderator" },
+  { parent: "maintenance", parentLabel: "Обслуживание", tab: "scheduler", label: "Планировщик", icon: "schedule", minRole: "superadmin" },
+  { parent: "dashboard", parentLabel: "Обзор", tab: "analytics", label: "Аналитика", icon: "analytics", minRole: "moderator" },
+  { parent: "content", parentLabel: "Контент", tab: "effects", label: "Эффекты", icon: "auto_awesome", minRole: "moderator" },
+  { parent: "content", parentLabel: "Контент", tab: "carousel", label: "Карусель", icon: "view_carousel", minRole: "moderator" },
+  { parent: "content", parentLabel: "Контент", tab: "buttons", label: "Кнопки-ссылки", icon: "link", minRole: "moderator" },
+];
+
+const PALETTE_ITEMS = [
+  ...ROUTES.map(({ slug, label, icon, section, minRole }) => ({ id: slug, label, icon, section, minRole })),
+  ...SUB_TABS.map((s) => ({
+    id: `${s.parent}?tab=${s.tab}`, label: s.label, icon: s.icon,
+    section: s.parentLabel, minRole: s.minRole,
+  })),
+];
 
 function NotFound() {
   return (

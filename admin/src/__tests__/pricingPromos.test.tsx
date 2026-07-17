@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../pages/Pricing", () => ({ Pricing: () => null }));
@@ -14,7 +15,7 @@ function render() {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  act(() => root!.render(<PricingPromos />));
+  act(() => root!.render(<MemoryRouter><PricingPromos /></MemoryRouter>));
   return container;
 }
 

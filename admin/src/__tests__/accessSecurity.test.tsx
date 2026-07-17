@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Stub the three merged pages so mounting a tab doesn't hit the API — this test
@@ -17,7 +18,7 @@ function render() {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  act(() => root!.render(<AccessSecurity />));
+  act(() => root!.render(<MemoryRouter><AccessSecurity /></MemoryRouter>));
   return container;
 }
 

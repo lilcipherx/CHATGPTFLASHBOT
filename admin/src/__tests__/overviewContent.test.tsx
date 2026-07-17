@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../pages/Dashboard", () => ({ Dashboard: () => null }));
@@ -18,7 +19,7 @@ function render(el: React.ReactElement) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  act(() => root!.render(el));
+  act(() => root!.render(<MemoryRouter>{el}</MemoryRouter>));
   return container;
 }
 

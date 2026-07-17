@@ -1,7 +1,9 @@
 // AI-настройка — единая страница для всего, что раньше было размазано на три
 // раздела (AI-роутинг / Провайдеры / Ключи API), которые ссылались друг на друга.
 // Контейнер лишь переключает вкладки; сами страницы переиспользуются как есть.
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+
+import { useTabParam } from "../lib/useTabParam";
 
 const AIRouting = lazy(() => import("./AIRouting").then((m) => ({ default: m.AIRouting })));
 const Providers = lazy(() => import("./Providers").then((m) => ({ default: m.Providers })));
@@ -29,7 +31,7 @@ export function AISetup() {
     { id: "keys", label: "Ключи API", icon: "key", minRole: "admin", el: <ApiKeys /> },
   ].filter((t) => myRank >= ROLE_RANK[t.minRole]);
 
-  const [tab, setTab] = useState<string>(tabs[0]?.id ?? "providers");
+  const [tab, setTab] = useTabParam(tabs.map((t) => t.id), tabs[0]?.id ?? "providers");
   const active = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   return (
