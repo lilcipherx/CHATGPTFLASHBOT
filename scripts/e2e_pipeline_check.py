@@ -4,6 +4,7 @@ Boots ``scripts.mock_ai_server`` on a free localhost port, then drives the REAL
 generation code paths for every modality and asserts each completes:
 
     chat   -> registry.chat            -> mock /v1/chat/completions
+    mod    -> moderation.moderate      -> mock /v1/moderations (blocks flagged text)
     photo  -> process_photoeffect_job  -> managed/direct image -> mock
     video  -> process_video_job        -> Kie createTask/recordInfo -> mock
     music  -> process_music_job        -> Kie createTask/recordInfo -> mock
@@ -149,6 +150,19 @@ async def _run_flows() -> int:
         failures += 0 if ok else 1
     except Exception as e:
         print(f"FAIL  chat   -> {type(e).__name__}: {e}")
+        failures += 1
+
+    # MODERATION safety gate -> mock /v1/moderations (blocks flagged text, allows clean)
+    try:
+        from core.services import moderation
+        flagged = await moderation.moderate("please mock-flag-this right now")
+        clean = await moderation.moderate("a calm sunset over the sea")
+        ok = (not flagged.allowed) and clean.allowed
+        print(f"{'PASS' if ok else 'FAIL'}  mod    -> flagged.allowed={flagged.allowed} "
+              f"clean.allowed={clean.allowed}")
+        failures += 0 if ok else 1
+    except Exception as e:
+        print(f"FAIL  mod    -> {type(e).__name__}: {e}")
         failures += 1
 
     # PHOTO / VIDEO / MUSIC (async workers)

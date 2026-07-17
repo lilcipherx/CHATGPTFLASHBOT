@@ -6,7 +6,9 @@ Covers (via the live /webhook/crypto route + apply_event, in-process ASGI):
   2. webhook idempotency      (replay the same invoice -> NO double-extension)
   3. amount-tampering rejected (paid amount != quoted -> no activation)
   4. credit-pack purchase     (credits:<uid>:<qty> payload -> credits added)
-  5. refund                   (revoke_entitlement + _refund_at_gateway -> access lost,
+  5. Stripe fail-closed (P0)  (forged "paid" event with no webhook secret -> rejected,
+                               no free subscription)
+  6. refund                   (revoke_entitlement + _refund_at_gateway -> access lost,
                                tx=refund_pending for a manual-refund gateway)
 
 Exit 0 = all checks passed, 1 = a check failed. Hermetic: SQLite + fakeredis;
@@ -32,6 +34,10 @@ os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{tempfile.gettempdir
 os.environ.setdefault("REDIS_URL", "memory://")
 os.environ.setdefault("BOT_TOKEN", "123:test")
 os.environ["CRYPTO_PAY_TOKEN"] = "test-crypto-token"
+# Stripe is "available" (secret key set) but its WEBHOOK secret is intentionally
+# left unset — the P0 fail-closed scenario: a forged "paid" event must be rejected.
+os.environ["STRIPE_SECRET"] = "sk_test_forgerycheck"
+os.environ.pop("STRIPE_WEBHOOK_SECRET", None)
 
 TOKEN = os.environ["CRYPTO_PAY_TOKEN"]
 
@@ -136,7 +142,21 @@ async def run() -> int:
         rec("credit-pack", r.status_code == 200 and after == before + qty,
             f"credits {before}->{after} (+{qty})")
 
-    # 5. Refund (revoke entitlement + attempt gateway refund) — same helpers the
+        # 5. Stripe fail-closed (P0): with STRIPE_SECRET set but STRIPE_WEBHOOK_SECRET
+        # unset, a forged "checkout.session.completed / paid" is rejected (verify_webhook
+        # refuses an unverifiable event) — the user must NOT get a subscription for free.
+        forged = json.dumps({
+            "type": "checkout.session.completed",
+            "data": {"object": {"payment_status": "paid",
+                                 "metadata": {"payload": f"sub:{UID2}:premium:1:{prem_minor}"}}},
+        }).encode()
+        r = await c.post("/webhook/stripe", content=forged,
+                         headers={**hdr, "stripe-signature": "t=1,v1=forged"})
+        u2 = await user(UID2)
+        rec("stripe-forgery", u2.sub_tier is None,
+            f"forged Stripe 'paid' rejected (http={r.status_code}, tier stayed None)")
+
+    # 6. Refund (revoke entitlement + attempt gateway refund) — same helpers the
     #    admin refund endpoint uses.
     try:
         from sqlalchemy import select
@@ -182,7 +202,7 @@ def main() -> int:
     if fails:
         print(f"\nMONEY-FLOW FAILED: {fails} check(s)")
         return 1
-    print("\nMONEY-FLOW OK: activation, idempotency, tamper-reject, pack, refund")
+    print("\nMONEY-FLOW OK: activation, idempotency, tamper-reject, pack, stripe-forgery, refund")
     return 0
 
 
