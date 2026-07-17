@@ -11,8 +11,8 @@ import { Login } from "./pages/Login";
 const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
 const Users = lazy(() => import("./pages/Users").then((m) => ({ default: m.Users })));
 const Payments = lazy(() => import("./pages/Payments").then((m) => ({ default: m.Payments })));
-const Pricing = lazy(() => import("./pages/Pricing").then((m) => ({ default: m.Pricing })));
-const Promos = lazy(() => import("./pages/Promos").then((m) => ({ default: m.Promos })));
+// Цены и промо объединяет разделы «Цены» и «Промокоды» в одну страницу с вкладками.
+const PricingPromos = lazy(() => import("./pages/PricingPromos").then((m) => ({ default: m.PricingPromos })));
 const Referrals = lazy(() => import("./pages/Referrals").then((m) => ({ default: m.Referrals })));
 const Broadcasts = lazy(() => import("./pages/Broadcasts").then((m) => ({ default: m.Broadcasts })));
 const Effects = lazy(() => import("./pages/Effects").then((m) => ({ default: m.Effects })));
@@ -59,8 +59,9 @@ const ROUTES: RouteDef[] = [
 
   // Монетизация — деньги
   { slug: "payments", minRole: "support", label: "Платежи", icon: "payments", section: "Монетизация", el: <Payments /> },
-  { slug: "pricing", minRole: "superadmin", label: "Цены", icon: "sell", section: "Монетизация", el: <Pricing /> },  // FIX: SUPERADMIN-7 - price changes affect revenue; superadmin-only
-  { slug: "promo-codes", minRole: "moderator", label: "Промокоды", icon: "confirmation_number", section: "Монетизация", el: <Promos /> },
+  // Цены + Промокоды объединены в «Цены и промо» (вкладки). minRole=moderator открывает
+  // страницу ради вкладки «Промокоды»; вкладка «Цены» гейтится superadmin внутри (+ backend RBAC).
+  { slug: "pricing-promos", minRole: "moderator", label: "Цены и промо", icon: "sell", section: "Монетизация", el: <PricingPromos /> },
   { slug: "referrals", minRole: "moderator", label: "Рефералы", icon: "group_add", section: "Монетизация", el: <Referrals /> },
   { slug: "contests", minRole: "moderator", label: "Конкурсы", icon: "celebration", section: "Монетизация", el: <Contests /> },
 
