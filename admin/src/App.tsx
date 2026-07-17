@@ -8,7 +8,8 @@ import { Login } from "./pages/Login";
 // Route-level code splitting: each page ships as its own chunk, so the admin
 // boots with a small bundle and loads a section only when its route is opened.
 // (Pages use named exports → adapt to React.lazy's default-export contract.)
-const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+// Дашборд объединяет живой обзор + Аналитику в одну страницу с вкладками.
+const Overview = lazy(() => import("./pages/Overview").then((m) => ({ default: m.Overview })));
 const Users = lazy(() => import("./pages/Users").then((m) => ({ default: m.Users })));
 const Payments = lazy(() => import("./pages/Payments").then((m) => ({ default: m.Payments })));
 // Цены и промо объединяет разделы «Цены» и «Промокоды» в одну страницу с вкладками.
@@ -16,8 +17,8 @@ const PricingPromos = lazy(() => import("./pages/PricingPromos").then((m) => ({ 
 const Referrals = lazy(() => import("./pages/Referrals").then((m) => ({ default: m.Referrals })));
 // Рассылки объединяет «Рассылки» + «Автопостинг» в одну страницу с вкладками.
 const Outreach = lazy(() => import("./pages/Outreach").then((m) => ({ default: m.Outreach })));
-const Effects = lazy(() => import("./pages/Effects").then((m) => ({ default: m.Effects })));
-const Banners = lazy(() => import("./pages/Banners").then((m) => ({ default: m.Banners })));
+// Контент объединяет Эффекты + Карусель + Кнопки-ссылки в одну страницу с вкладками.
+const Content = lazy(() => import("./pages/Content").then((m) => ({ default: m.Content })));
 // AI-настройка объединяет AI-роутинг + Провайдеры + Ключи API в одну страницу с вкладками.
 const AISetup = lazy(() => import("./pages/AISetup").then((m) => ({ default: m.AISetup })));
 const Features = lazy(() => import("./pages/Features").then((m) => ({ default: m.Features })));
@@ -25,11 +26,9 @@ const Features = lazy(() => import("./pages/Features").then((m) => ({ default: m
 const AccessSecurity = lazy(() => import("./pages/AccessSecurity").then((m) => ({ default: m.AccessSecurity })));
 const Health = lazy(() => import("./pages/Health").then((m) => ({ default: m.Health })));
 const Gallery = lazy(() => import("./pages/Gallery").then((m) => ({ default: m.Gallery })));
-const Analytics = lazy(() => import("./pages/Analytics").then((m) => ({ default: m.Analytics })));
 const Localization = lazy(() => import("./pages/Localization").then((m) => ({ default: m.Localization })));
 const Contests = lazy(() => import("./pages/Contests").then((m) => ({ default: m.Contests })));
 const Feedback = lazy(() => import("./pages/Feedback").then((m) => ({ default: m.Feedback })));
-const CustomButtons = lazy(() => import("./pages/CustomButtons").then((m) => ({ default: m.CustomButtons })));
 const Bots = lazy(() => import("./pages/Bots").then((m) => ({ default: m.Bots })));
 // Обслуживание объединяет «Обслуживание» + «Планировщик» в одну страницу с вкладками.
 const SystemOps = lazy(() => import("./pages/SystemOps").then((m) => ({ default: m.SystemOps })));
@@ -48,8 +47,9 @@ interface RouteDef {
 // money → outreach → AI engine → settings); order within a section is by use.
 const ROUTES: RouteDef[] = [
   // Обзор — что происходит прямо сейчас
-  { slug: "dashboard", minRole: "support", label: "Дашборд", icon: "dashboard", section: "Обзор", el: <Dashboard /> },
-  { slug: "analytics", minRole: "moderator", label: "Аналитика", icon: "analytics", section: "Обзор", el: <Analytics /> },
+  // Дашборд + Аналитика объединены в «Дашборд» (вкладки). slug сохранён — на него
+  // редиректит «/»; вкладка «Аналитика» гейтится moderator внутри Overview.
+  { slug: "dashboard", minRole: "support", label: "Дашборд", icon: "dashboard", section: "Обзор", el: <Overview /> },
   { slug: "health", minRole: "moderator", label: "Здоровье системы", icon: "monitor_heart", section: "Обзор", el: <Health /> },
 
   // Пользователи — люди и их обращения
@@ -68,9 +68,8 @@ const ROUTES: RouteDef[] = [
   // Маркетинг — общение с аудиторией
   // Рассылки + Автопостинг объединены в «Рассылки» (вкладки: пользователям / в каналы).
   { slug: "outreach", minRole: "moderator", label: "Рассылки", icon: "campaign", section: "Маркетинг", el: <Outreach /> },
-  { slug: "carousel", minRole: "moderator", label: "Карусель", icon: "view_carousel", section: "Маркетинг", el: <Banners /> },
-  { slug: "buttons", minRole: "moderator", label: "Кнопки-ссылки", icon: "link", section: "Маркетинг", el: <CustomButtons /> },
-  { slug: "effects", minRole: "moderator", label: "Эффекты", icon: "auto_awesome", section: "Маркетинг", el: <Effects /> },
+  // Эффекты + Карусель + Кнопки-ссылки объединены в «Контент» (вкладки).
+  { slug: "content", minRole: "moderator", label: "Контент", icon: "auto_awesome", section: "Маркетинг", el: <Content /> },
 
   // AI и контент — движок генерации
   // AI-роутинг + Провайдеры + Ключи API объединены в «AI-настройка» (вкладки). minRole=admin
