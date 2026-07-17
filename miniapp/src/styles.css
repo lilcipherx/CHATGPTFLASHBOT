@@ -674,7 +674,7 @@ img, video, canvas { max-width: 100%; }
 @keyframes el-fade { from { opacity: 0; } to { opacity: 1; } }
 .el-panel {
   width: 100%; max-width: var(--sheet-max-width); margin: 0 auto;
-  background: var(--body); border-top-left-radius: var(--r-lg); border-top-right-radius: var(--r-lg);
+  background: var(--bg); border-top-left-radius: var(--r-lg); border-top-right-radius: var(--r-lg);
   border: 1px solid var(--border); border-bottom: none;
   padding: 16px 18px calc(18px + env(safe-area-inset-bottom));
   animation: el-rise .2s cubic-bezier(.2, .8, .2, 1);
