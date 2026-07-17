@@ -27,7 +27,7 @@ import time
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 app = FastAPI(title="Mock AI Server", docs_url="/")
 
@@ -70,6 +70,20 @@ async def images_generations(req: Request) -> dict:
     body = await req.json()
     n = int(body.get("n", 1))
     return {"created": int(time.time()), "data": [{"url": _PIXEL_URL} for _ in range(n)]}
+
+
+# ---- OpenAI-compatible audio (STT / TTS) -----------------------------------
+@app.post("/v1/audio/transcriptions")
+async def transcriptions(req: Request) -> dict:
+    # Voice input: return deterministic recognised text (Whisper-compatible shape).
+    return {"text": "[mock] transcribed speech"}
+
+
+@app.post("/v1/audio/speech")
+async def speech(req: Request) -> Response:
+    # Voice output: return deterministic fake OGG bytes so the TTS pipeline gets
+    # real, non-empty audio data back (the adapter reads the raw body).
+    return Response(content=b"OggS\x00mock-tts-audio-bytes", media_type="audio/ogg")
 
 
 # ---- OpenAI Moderation -----------------------------------------------------
