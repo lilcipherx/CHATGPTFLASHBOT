@@ -14,7 +14,8 @@ const Payments = lazy(() => import("./pages/Payments").then((m) => ({ default: m
 // Цены и промо объединяет разделы «Цены» и «Промокоды» в одну страницу с вкладками.
 const PricingPromos = lazy(() => import("./pages/PricingPromos").then((m) => ({ default: m.PricingPromos })));
 const Referrals = lazy(() => import("./pages/Referrals").then((m) => ({ default: m.Referrals })));
-const Broadcasts = lazy(() => import("./pages/Broadcasts").then((m) => ({ default: m.Broadcasts })));
+// Рассылки объединяет «Рассылки» + «Автопостинг» в одну страницу с вкладками.
+const Outreach = lazy(() => import("./pages/Outreach").then((m) => ({ default: m.Outreach })));
 const Effects = lazy(() => import("./pages/Effects").then((m) => ({ default: m.Effects })));
 const Banners = lazy(() => import("./pages/Banners").then((m) => ({ default: m.Banners })));
 // AI-настройка объединяет AI-роутинг + Провайдеры + Ключи API в одну страницу с вкладками.
@@ -27,12 +28,11 @@ const Gallery = lazy(() => import("./pages/Gallery").then((m) => ({ default: m.G
 const Analytics = lazy(() => import("./pages/Analytics").then((m) => ({ default: m.Analytics })));
 const Localization = lazy(() => import("./pages/Localization").then((m) => ({ default: m.Localization })));
 const Contests = lazy(() => import("./pages/Contests").then((m) => ({ default: m.Contests })));
-const ChannelPosts = lazy(() => import("./pages/ChannelPosts").then((m) => ({ default: m.ChannelPosts })));
 const Feedback = lazy(() => import("./pages/Feedback").then((m) => ({ default: m.Feedback })));
 const CustomButtons = lazy(() => import("./pages/CustomButtons").then((m) => ({ default: m.CustomButtons })));
 const Bots = lazy(() => import("./pages/Bots").then((m) => ({ default: m.Bots })));
-const Maintenance = lazy(() => import("./pages/Maintenance").then((m) => ({ default: m.Maintenance })));
-const Scheduler = lazy(() => import("./pages/Scheduler").then((m) => ({ default: m.Scheduler })));
+// Обслуживание объединяет «Обслуживание» + «Планировщик» в одну страницу с вкладками.
+const SystemOps = lazy(() => import("./pages/SystemOps").then((m) => ({ default: m.SystemOps })));
 
 interface RouteDef {
   slug: string;       // URL segment → /admin/#/<slug>
@@ -66,8 +66,8 @@ const ROUTES: RouteDef[] = [
   { slug: "contests", minRole: "moderator", label: "Конкурсы", icon: "celebration", section: "Монетизация", el: <Contests /> },
 
   // Маркетинг — общение с аудиторией
-  { slug: "broadcast", minRole: "moderator", label: "Рассылки", icon: "campaign", section: "Маркетинг", el: <Broadcasts /> },
-  { slug: "autoposting", minRole: "moderator", label: "Автопостинг", icon: "rss_feed", section: "Маркетинг", el: <ChannelPosts /> },
+  // Рассылки + Автопостинг объединены в «Рассылки» (вкладки: пользователям / в каналы).
+  { slug: "outreach", minRole: "moderator", label: "Рассылки", icon: "campaign", section: "Маркетинг", el: <Outreach /> },
   { slug: "carousel", minRole: "moderator", label: "Карусель", icon: "view_carousel", section: "Маркетинг", el: <Banners /> },
   { slug: "buttons", minRole: "moderator", label: "Кнопки-ссылки", icon: "link", section: "Маркетинг", el: <CustomButtons /> },
   { slug: "effects", minRole: "moderator", label: "Эффекты", icon: "auto_awesome", section: "Маркетинг", el: <Effects /> },
@@ -85,8 +85,9 @@ const ROUTES: RouteDef[] = [
   { slug: "access-security", minRole: "support", label: "Доступ и безопасность", icon: "shield", section: "Система", el: <AccessSecurity /> },
   { slug: "white-label", minRole: "admin", label: "Боты (white-label)", icon: "smart_toy", section: "Система", el: <Bots /> },
   { slug: "localization", minRole: "admin", label: "Локализация", icon: "translate", section: "Система", el: <Localization /> },
-  { slug: "maintenance", minRole: "superadmin", label: "Обслуживание", icon: "build", section: "Система", el: <Maintenance /> },  // FIX: SUPERADMIN-10 - VACUUM/backup/flush cache are destructive; superadmin-only
-  { slug: "scheduler", minRole: "superadmin", label: "Планировщик", icon: "schedule", section: "Система", el: <Scheduler /> },  // FIX: AUDIT-SCHED - admin-controlled cron on/off + interval
+  // Обслуживание + Планировщик объединены в «Обслуживание» (вкладки). superadmin-only
+  // (VACUUM/backup/flush + cron on/off — деструктивные операции).
+  { slug: "maintenance", minRole: "superadmin", label: "Обслуживание", icon: "build", section: "Система", el: <SystemOps /> },
 ];
 
 // Stable projection for the command palette. ROUTES is a module constant, so build
