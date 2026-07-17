@@ -6,9 +6,11 @@ Covers (via the live /webhook/crypto route + apply_event, in-process ASGI):
   2. webhook idempotency      (replay the same invoice -> NO double-extension)
   3. amount-tampering rejected (paid amount != quoted -> no activation)
   4. credit-pack purchase     (credits:<uid>:<qty> payload -> credits added)
-  5. Stripe fail-closed (P0)  (forged "paid" event with no webhook secret -> rejected,
+  5. referral reward          (referred user's first paid purchase -> referrer paid
+                               REFERRAL_REWARD_CREDITS, once)
+  6. Stripe fail-closed (P0)  (forged "paid" event with no webhook secret -> rejected,
                                no free subscription)
-  6. refund                   (revoke_entitlement + _refund_at_gateway -> access lost,
+  7. refund                   (revoke_entitlement + _refund_at_gateway -> access lost,
                                tx=refund_pending for a manual-refund gateway)
 
 Exit 0 = all checks passed, 1 = a check failed. Hermetic: SQLite + fakeredis;
@@ -74,6 +76,9 @@ async def run() -> int:
     from core.services.users import get_or_create_user
 
     UID, UID2 = 700001, 700002
+    REFERRER, REFERRED = 700003, 700004
+
+    from core.services import referrals
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -81,6 +86,11 @@ async def run() -> int:
     async with SessionFactory() as s:
         await get_or_create_user(s, UID)
         await get_or_create_user(s, UID2)
+        await get_or_create_user(s, REFERRER)
+        await get_or_create_user(s, REFERRED, referred_by=REFERRER)
+        # Switch the referral program to reward on the FIRST PAID PURCHASE (default is
+        # reward-on-register) so a payment triggers the referrer payout.
+        await referrals.set_settings(s, reward_on_register=False)
         await s.commit()
 
     async def user(uid):
@@ -142,7 +152,17 @@ async def run() -> int:
         rec("credit-pack", r.status_code == 200 and after == before + qty,
             f"credits {before}->{after} (+{qty})")
 
-        # 5. Stripe fail-closed (P0): with STRIPE_SECRET set but STRIPE_WEBHOOK_SECRET
+        # 5. Referral reward: the referred user's FIRST paid purchase pays the referrer
+        # REFERRAL_REWARD_CREDITS (idempotent on referrals.referred_id). apply_event
+        # calls reward_referral_on_payment for any non-avatar purchase.
+        from core.constants import REFERRAL_REWARD_CREDITS
+        body_r, sig_r = _webhook(f"sub:{REFERRED}:premium:1:{prem_minor}", prem_minor, "inv-ref")
+        await post(body_r, sig_r)
+        ref = await user(REFERRER)
+        rec("referral-reward", ref.credits == REFERRAL_REWARD_CREDITS,
+            f"referrer credits={ref.credits} (expected {REFERRAL_REWARD_CREDITS})")
+
+        # 6. Stripe fail-closed (P0): with STRIPE_SECRET set but STRIPE_WEBHOOK_SECRET
         # unset, a forged "checkout.session.completed / paid" is rejected (verify_webhook
         # refuses an unverifiable event) — the user must NOT get a subscription for free.
         forged = json.dumps({
@@ -202,7 +222,8 @@ def main() -> int:
     if fails:
         print(f"\nMONEY-FLOW FAILED: {fails} check(s)")
         return 1
-    print("\nMONEY-FLOW OK: activation, idempotency, tamper-reject, pack, stripe-forgery, refund")
+    print("\nMONEY-FLOW OK: activation, idempotency, tamper, pack, referral, "
+          "stripe-forgery, refund")
     return 0
 
 
