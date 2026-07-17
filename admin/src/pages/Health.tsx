@@ -141,7 +141,7 @@ export function Health() {
         <div className="panel">
           <div className="panel-title">
             AI-провайдеры (видео)
-            <a href="#/providers" className="panel-link">настроить <span className="ms sm">chevron_right</span></a>
+            <a href="#/ai-setup" className="panel-link">настроить <span className="ms sm">chevron_right</span></a>
           </div>
           {!providers || providers.length === 0 ? (
             <div className="empty">Провайдеры не настроены.</div>

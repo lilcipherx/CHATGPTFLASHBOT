@@ -17,10 +17,9 @@ const Referrals = lazy(() => import("./pages/Referrals").then((m) => ({ default:
 const Broadcasts = lazy(() => import("./pages/Broadcasts").then((m) => ({ default: m.Broadcasts })));
 const Effects = lazy(() => import("./pages/Effects").then((m) => ({ default: m.Effects })));
 const Banners = lazy(() => import("./pages/Banners").then((m) => ({ default: m.Banners })));
-const AIRouting = lazy(() => import("./pages/AIRouting").then((m) => ({ default: m.AIRouting })));
+// AI-настройка объединяет AI-роутинг + Провайдеры + Ключи API в одну страницу с вкладками.
+const AISetup = lazy(() => import("./pages/AISetup").then((m) => ({ default: m.AISetup })));
 const Features = lazy(() => import("./pages/Features").then((m) => ({ default: m.Features })));
-const Providers = lazy(() => import("./pages/Providers").then((m) => ({ default: m.Providers })));
-const ApiKeys = lazy(() => import("./pages/ApiKeys").then((m) => ({ default: m.ApiKeys })));
 const Audit = lazy(() => import("./pages/Audit").then((m) => ({ default: m.Audit })));
 const Security = lazy(() => import("./pages/Security").then((m) => ({ default: m.Security })));
 const Health = lazy(() => import("./pages/Health").then((m) => ({ default: m.Health })));
@@ -74,9 +73,9 @@ const ROUTES: RouteDef[] = [
   { slug: "effects", minRole: "moderator", label: "Эффекты", icon: "auto_awesome", section: "Маркетинг", el: <Effects /> },
 
   // AI и контент — движок генерации
-  { slug: "ai-routing", minRole: "superadmin", label: "AI-роутинг", icon: "memory", section: "AI и контент", el: <AIRouting /> },  // FIX: SUPERADMIN-8 - AI routing strategy + provider keys; superadmin-only
-  { slug: "providers", minRole: "admin", label: "Провайдеры", icon: "dns", section: "AI и контент", el: <Providers /> },
-  { slug: "api-keys", minRole: "admin", label: "Ключи API", icon: "key", section: "AI и контент", el: <ApiKeys /> },
+  // AI-роутинг + Провайдеры + Ключи API объединены в «AI-настройка» (вкладки). minRole=admin
+  // открывает страницу; вкладка «Роутинг» гейтится superadmin внутри AISetup (+ backend RBAC).
+  { slug: "ai-setup", minRole: "admin", label: "AI-настройка", icon: "memory", section: "AI и контент", el: <AISetup /> },
   { slug: "feature-flags", minRole: "superadmin", label: "Функции", icon: "tune", section: "AI и контент", el: <Features /> },  // FIX: SUPERADMIN-9 - feature flags + gates control who sees what; superadmin-only
 
   // Система — настройки и доступ
