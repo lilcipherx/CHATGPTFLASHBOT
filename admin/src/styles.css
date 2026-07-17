@@ -198,7 +198,16 @@ a { color: var(--accent); text-decoration: none; }
   }
   .sb-brand { margin: 0; flex: 0 0 auto; gap: 10px; }
   .navi { flex-direction: row; gap: 4px; flex: 0 0 auto; }
-  .navi-section, .sb-foot { display: none; }
+  .navi-section { display: none; }
+  /* FIX: keep the footer action buttons (theme toggle + logout) reachable on mobile —
+     previously .sb-foot was display:none, so a phone user could neither switch theme
+     nor log out. Drop the avatar/identity, pin the buttons to the right of the top bar. */
+  .sb-foot {
+    display: flex; margin: 0; padding: 0 0 0 6px; border: none; flex: 0 0 auto;
+    gap: 6px; position: sticky; right: 0;
+    background: var(--glass); backdrop-filter: blur(20px);
+  }
+  .sb-foot .sb-ava, .sb-foot .sb-id { display: none; }
   .navi-item { padding: 8px 10px; white-space: nowrap; }
   .navi-item span:not(.ms) { display: none; }
   .navi-item .ms { font-size: 22px; }
