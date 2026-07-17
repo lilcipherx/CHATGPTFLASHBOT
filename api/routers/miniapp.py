@@ -1122,6 +1122,45 @@ async def invoice_link(
     return {"url": link}
 
 
+# FIX: PERF-A1b - the billing storefront is a pure GLOBAL projection of the pricing
+# config (identical for every user; `tg` is used only for auth). It fanned out into
+# ~7 pricing reads (one get_config deserialize per pack + subscription + credits) on
+# every Mini App billing-tab open. Cache the assembled payload in Redis for a short
+# TTL; pricing.set_config invalidates it so an admin price/sale change applies live.
+_OFFERS_CACHE_KEY = "cache:miniapp_offers"
+_OFFERS_CACHE_TTL = 30  # seconds
+
+
+async def _billing_offers_payload(session: AsyncSession) -> dict:
+    """Assemble the (global) storefront offers dict, Redis-cached (best-effort)."""
+    from core.redis_client import redis_client
+
+    try:
+        raw = await redis_client.get(_OFFERS_CACHE_KEY)
+        if raw:
+            return json.loads(raw)
+    except Exception:  # noqa: BLE001 — cache is best-effort
+        pass
+
+    def _offers(m: dict[int, int]) -> list[dict]:
+        # qty/months -> stars; skip non-positive prices so a 0 hides an offer.
+        return [{"qty": q, "stars": s} for q, s in sorted(m.items()) if s > 0]
+
+    packs = {p: _offers(await pricing.pack_prices_for(session, p)) for p in PACK_PRICES}
+    premium = await pricing.subscription_prices(session, "premium")
+    out = {
+        "credits": _offers(await pricing.credit_packs(session)),
+        "packs": packs,
+        "premium": [{"months": q, "stars": s} for q, s in sorted(premium.items()) if s > 0],
+    }
+
+    try:
+        await redis_client.set(_OFFERS_CACHE_KEY, json.dumps(out), ex=_OFFERS_CACHE_TTL)
+    except Exception:  # noqa: BLE001 — cache is best-effort
+        pass
+    return out
+
+
 @router.get("/billing/offers")
 async def billing_offers(
     tg=Depends(current_webapp_user),
@@ -1133,15 +1172,4 @@ async def billing_offers(
     the store without a frontend release. Offers with no configured price are
     dropped (admin removed them) — the storefront is a pure projection of config."""
     await _require_user(session, tg)
-
-    def _offers(m: dict[int, int]) -> list[dict]:
-        # qty/months -> stars; skip non-positive prices so a 0 hides an offer.
-        return [{"qty": q, "stars": s} for q, s in sorted(m.items()) if s > 0]
-
-    packs = {p: _offers(await pricing.pack_prices_for(session, p)) for p in PACK_PRICES}
-    premium = await pricing.subscription_prices(session, "premium")
-    return {
-        "credits": _offers(await pricing.credit_packs(session)),
-        "packs": packs,
-        "premium": [{"months": q, "stars": s} for q, s in sorted(premium.items()) if s > 0],
-    }
+    return await _billing_offers_payload(session)

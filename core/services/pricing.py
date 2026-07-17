@@ -303,6 +303,10 @@ async def set_config(session: AsyncSession, patch: dict[str, Any]) -> dict[str, 
     await session.commit()
     try:
         await redis_client.delete(_CACHE_KEY)
+        # FIX: PERF-A1b - the Mini App offers storefront (api.routers.miniapp) is a
+        # derived projection of these prices/sale, so drop its cache too on any config
+        # change — otherwise the store lags an admin price edit by up to its TTL.
+        await redis_client.delete("cache:miniapp_offers")
     except Exception as exc:  # noqa: BLE001
         import structlog
         structlog.get_logger().warning('core.services.pricing.set_config_failed', error=str(exc))
