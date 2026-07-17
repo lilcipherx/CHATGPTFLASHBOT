@@ -53,3 +53,8 @@ test-results/
 loadtests/report*.html
 loadtests/summary.json
 loadtests/locust_report.html
+
+# Atomic-release bundles produced by scripts/atomic_release.sh (build artifacts,
+# shipped to the server via scp — never committed).
+release-*.tar.gz
+release-*.tar.gz.sha256
