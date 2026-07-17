@@ -20,12 +20,11 @@ const Banners = lazy(() => import("./pages/Banners").then((m) => ({ default: m.B
 // AI-настройка объединяет AI-роутинг + Провайдеры + Ключи API в одну страницу с вкладками.
 const AISetup = lazy(() => import("./pages/AISetup").then((m) => ({ default: m.AISetup })));
 const Features = lazy(() => import("./pages/Features").then((m) => ({ default: m.Features })));
-const Audit = lazy(() => import("./pages/Audit").then((m) => ({ default: m.Audit })));
-const Security = lazy(() => import("./pages/Security").then((m) => ({ default: m.Security })));
+// Доступ и безопасность объединяет Админы + Безопасность + Аудит-лог в одну страницу.
+const AccessSecurity = lazy(() => import("./pages/AccessSecurity").then((m) => ({ default: m.AccessSecurity })));
 const Health = lazy(() => import("./pages/Health").then((m) => ({ default: m.Health })));
 const Gallery = lazy(() => import("./pages/Gallery").then((m) => ({ default: m.Gallery })));
 const Analytics = lazy(() => import("./pages/Analytics").then((m) => ({ default: m.Analytics })));
-const Admins = lazy(() => import("./pages/Admins").then((m) => ({ default: m.Admins })));
 const Localization = lazy(() => import("./pages/Localization").then((m) => ({ default: m.Localization })));
 const Contests = lazy(() => import("./pages/Contests").then((m) => ({ default: m.Contests })));
 const ChannelPosts = lazy(() => import("./pages/ChannelPosts").then((m) => ({ default: m.ChannelPosts })));
@@ -79,13 +78,14 @@ const ROUTES: RouteDef[] = [
   { slug: "feature-flags", minRole: "superadmin", label: "Функции", icon: "tune", section: "AI и контент", el: <Features /> },  // FIX: SUPERADMIN-9 - feature flags + gates control who sees what; superadmin-only
 
   // Система — настройки и доступ
-  { slug: "admins", minRole: "superadmin", label: "Админы", icon: "admin_panel_settings", section: "Система", el: <Admins /> },
+  // Админы + Безопасность + Аудит-лог объединены в «Доступ и безопасность» (вкладки).
+  // minRole=support открывает страницу ради вкладки «Аудит-лог»; вкладки Админы/
+  // Безопасность гейтятся superadmin внутри AccessSecurity (+ backend RBAC).
+  { slug: "access-security", minRole: "support", label: "Доступ и безопасность", icon: "shield", section: "Система", el: <AccessSecurity /> },
   { slug: "white-label", minRole: "admin", label: "Боты (white-label)", icon: "smart_toy", section: "Система", el: <Bots /> },
   { slug: "localization", minRole: "admin", label: "Локализация", icon: "translate", section: "Система", el: <Localization /> },
   { slug: "maintenance", minRole: "superadmin", label: "Обслуживание", icon: "build", section: "Система", el: <Maintenance /> },  // FIX: SUPERADMIN-10 - VACUUM/backup/flush cache are destructive; superadmin-only
   { slug: "scheduler", minRole: "superadmin", label: "Планировщик", icon: "schedule", section: "Система", el: <Scheduler /> },  // FIX: AUDIT-SCHED - admin-controlled cron on/off + interval
-  { slug: "audit", minRole: "support", label: "Аудит-лог", icon: "receipt_long", section: "Система", el: <Audit /> },
-  { slug: "security", minRole: "superadmin", label: "Безопасность", icon: "shield", section: "Система", el: <Security /> },  // FIX: SUPERADMIN-11 - security posture + 2FA policy; superadmin-only
 ];
 
 // Stable projection for the command palette. ROUTES is a module constant, so build
