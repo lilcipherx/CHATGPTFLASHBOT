@@ -297,8 +297,8 @@ async def test_avatar_worker_refunds_exact_charge(monkeypatch):
     # charge the job paid for and marks the job failed.
     from sqlalchemy import select
 
-    from core.models import GenerationJob, Transaction, User
     import workers.avatar_tasks as at
+    from core.models import GenerationJob, Transaction, User
     from workers.avatar_tasks import process_avatar_job
 
     bot = _FakeBot()
