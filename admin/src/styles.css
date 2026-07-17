@@ -19,6 +19,7 @@
   --accent: #d4ff3a;          /* acid lime */
   --accent-2: #c8f32c;
   --accent-ink: #08080a;
+  --glow: rgba(212, 255, 58, .16);   /* ambient accent glow (stat cards) — themed */
   --pro: #7c5cff;             /* pro purple */
   --ok: #d4ff3a;
   --warn: #fbbf24;
@@ -56,6 +57,7 @@
   --accent-ink: #ffffff;
   --ok: #2e7d32;
   --danger: #c0362c;
+  --glow: rgba(77, 124, 0, .12);   /* softer green glow on light surfaces (not neon) */
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -316,7 +318,7 @@ a { color: var(--accent); text-decoration: none; }
   transition: border-color .15s, transform .15s;
 }
 .metric:hover { border-color: var(--border-hi); transform: translateY(-2px); }
-.metric .glow { position: absolute; right: -18px; top: -18px; width: 64px; height: 64px; border-radius: 50%; filter: blur(22px); background: rgba(212,255,58,.16); }
+.metric .glow { position: absolute; right: -18px; top: -18px; width: 64px; height: 64px; border-radius: 50%; filter: blur(22px); background: var(--glow); }
 .metric.purple .glow { background: rgba(124,92,255,.18); }
 .metric.danger .glow { background: rgba(255,180,171,.18); }
 /* min-height clamps 1-line and 2-line labels to the same height so the numbers
@@ -756,7 +758,10 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
   transition: border-color .15s, background .15s;
 }
 .select-btn:hover { border-color: var(--border-hi); }
-.select-btn.open, .select-btn:focus-visible { outline: none; border-color: var(--accent); }
+/* Keyboard focus shows the SAME accent ring as every other control (consistency +
+   a11y); the open dropdown suppresses it (border-colour is enough while open). */
+.select-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+.select-btn.open { outline: none; border-color: var(--accent); }
 .select-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select-caret { color: var(--hint); transition: transform .18s cubic-bezier(.2,.8,.2,1), color .15s; }
 .select-btn.open .select-caret { transform: rotate(180deg); color: var(--accent); }
@@ -826,7 +831,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
 }
 .dfc-year-btn:hover { background: rgba(212, 255, 58, .10); }
 .dfc-year-btn.on { background: var(--accent); color: var(--accent-ink); }
-.dfc-year-btn:focus-visible { outline: none; border-color: var(--accent); }
+.dfc-year-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* keeps the year centred when the month chevrons are hidden (year view) */
 .dfc-nav-spacer { flex: 0 0 auto; width: 30px; height: 30px; }
 /* year grid: 4 across, scrolls if the range is taller than the popup */
